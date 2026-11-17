@@ -195,7 +195,7 @@ Put these in `versions.yaml`. At implementation time, bump each to the newest pa
 │   ├── rules/                     # shared PrometheusRule sources
 │   └── tests/                     # promtool unit tests
 ├── scripts/
-│   ├── preflight.sh  postflight.sh  rotate-nodes.sh  switchover.sh  restore-drill.sh
+│   ├── preflight.sh  postflight.sh  rotate-nodes.sh  aks-rotate-pools.sh  switchover.sh  restore-drill.sh
 │   └── lib.sh
 ├── tests/e2e/                     # bash suites, one per name in section 1, engine-parameterised
 ├── docs/
@@ -544,7 +544,7 @@ Use `namespace` as the instance variable everywhere.
 
 > In every zone, a displaced database pod must find a schedulable node of its node class before its old node is gone.
 
-With one pool per zone and surge 1, AKS adds the new node in the right zone first, so the rule holds as long as the VM size can be allocated. Local-NVMe sizes are the ones most often short of capacity: pre-flight checks that each such pool can still grow by one node.
+With one pool per zone and surge 1, AKS adds the new node in the right zone first, so the rule holds as long as the VM size can be allocated in that zone and the pool is below its autoscaler maximum. Pre-flight checks the second; the first shows up as a Pending pod and the `DbPodPending` alert.
 
 **9.3 Scripts.**
 
