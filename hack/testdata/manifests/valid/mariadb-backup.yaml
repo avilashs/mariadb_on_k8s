@@ -1,0 +1,66 @@
+# Backup, replica seeding and point-in-time recovery resources from PLAN.md phase 5.
+---
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: PhysicalBackup
+metadata:
+  name: orders-daily
+  namespace: db-orders
+spec:
+  mariaDbRef:
+    name: orders
+  schedule:
+    cron: "0 2 * * *"
+  compression: gzip
+  maxRetention: 720h
+  target: PreferReplica
+  storage:
+    s3:
+      bucket: backups
+      prefix: orders/physical
+      endpoint: objects.example.internal:9000
+      region: us-east-1
+      accessKeyIdSecretKeyRef:
+        name: db-backup-credentials
+        key: access-key-id
+      secretAccessKeySecretKeyRef:
+        name: db-backup-credentials
+        key: secret-access-key
+---
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: PhysicalBackup
+metadata:
+  name: orders-azure
+  namespace: db-orders
+spec:
+  mariaDbRef:
+    name: orders
+  schedule:
+    cron: "0 3 * * *"
+  storage:
+    azureBlob:
+      containerName: backups
+      serviceURL: https://example.blob.core.windows.net
+      prefix: orders/physical
+---
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: PointInTimeRecovery
+metadata:
+  name: orders-pitr
+  namespace: db-orders
+spec:
+  physicalBackupRef:
+    name: orders-daily
+  storage:
+    s3:
+      bucket: backups
+      prefix: orders/binlogs
+      endpoint: objects.example.internal:9000
+      region: us-east-1
+      accessKeyIdSecretKeyRef:
+        name: db-backup-credentials
+        key: access-key-id
+      secretAccessKeySecretKeyRef:
+        name: db-backup-credentials
+        key: secret-access-key
+  compression: gzip
+  archiveTimeout: 1h

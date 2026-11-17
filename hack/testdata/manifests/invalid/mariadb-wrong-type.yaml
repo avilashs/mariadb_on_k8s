@@ -1,0 +1,9 @@
+# expect: replicas
+# A value of the wrong type must be rejected.
+---
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: MariaDB
+metadata:
+  name: wrong-type
+spec:
+  replicas: three

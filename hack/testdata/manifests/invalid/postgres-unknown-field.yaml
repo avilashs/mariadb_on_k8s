@@ -1,0 +1,13 @@
+# expect: podAntiAffinityKind
+# An unknown field in a CloudNativePG Cluster must be rejected.
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: typo
+spec:
+  instances: 3
+  storage:
+    size: 1Gi
+  affinity:
+    podAntiAffinityKind: required

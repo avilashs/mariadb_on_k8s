@@ -1,0 +1,19 @@
+---
+extends: default
+
+ignore: |
+  /.bin/
+  /.cache/
+  # Helm templates are Go templates, not YAML. They are checked by `helm lint`
+  # and by rendering them through kubeconform instead.
+  /charts/*/templates/
+
+rules:
+  line-length:
+    max: 160
+  truthy:
+    # GitHub Actions uses the bare key `on`.
+    check-keys: false
+  comments:
+    min-spaces-from-content: 1
+  document-start: disable

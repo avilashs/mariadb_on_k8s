@@ -1,0 +1,25 @@
+# A MariaDB instance on a local-nvme node class: the volume claim template
+# carries the annotation the local CSI driver requires for persistent claims.
+---
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: MariaDB
+metadata:
+  name: ledger
+  namespace: db-ledger
+spec:
+  replicas: 3
+  storage:
+    volumeClaimTemplate:
+      metadata:
+        annotations:
+          localdisk.csi.acstor.io/accept-ephemeral-storage: "true"
+      accessModes:
+        - ReadWriteOnce
+      storageClassName: db-nvme
+      resources:
+        requests:
+          storage: 500Gi
+  replication:
+    enabled: true
+  nodeSelector:
+    dbaas.local/node-class: nvme-l8

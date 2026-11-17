@@ -1,0 +1,12 @@
+# expect: semiSyncEnable
+# A misspelled field must be rejected, not silently ignored.
+---
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: MariaDB
+metadata:
+  name: typo
+spec:
+  replicas: 3
+  replication:
+    enabled: true
+    semiSyncEnable: true

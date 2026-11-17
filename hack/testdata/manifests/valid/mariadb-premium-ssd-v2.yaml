@@ -1,0 +1,87 @@
+# The reference shape of a MariaDB instance from PLAN.md (phases 3 and 5),
+# on a premium-ssd-v2 node class. If the pinned CRD rejects this file, the plan
+# and the chart must change, not this test.
+---
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: MariaDB
+metadata:
+  name: orders
+  namespace: db-orders
+spec:
+  image: docker-registry1.mariadb.com/library/mariadb:11.8.2
+  replicas: 3
+  rootPasswordSecretKeyRef:
+    name: orders-root
+    key: password
+    generate: true
+  storage:
+    size: 100Gi
+    storageClassName: db-pv2
+    resizeInUseVolumes: true
+    waitForVolumeResize: true
+  resources:
+    requests:
+      cpu: "2"
+      memory: 8Gi
+    limits:
+      memory: 8Gi
+  replication:
+    enabled: true
+    gtidStrictMode: true
+    semiSyncEnabled: true
+    semiSyncWaitPoint: AfterSync
+    semiSyncAckTimeout: 10s
+    syncBinlog: 1
+    primary:
+      autoFailover: true
+    replica:
+      gtid: CurrentPos
+      syncTimeout: 10s
+      bootstrapFrom:
+        physicalBackupTemplateRef:
+          name: orders-replica-seed
+      recovery:
+        enabled: true
+        errorDurationThreshold: 5m
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - topologyKey: kubernetes.io/hostname
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/instance: orders
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/instance: orders
+  nodeSelector:
+    dbaas.local/node-class: pv2-e8
+  tolerations:
+    - key: workload
+      operator: Equal
+      value: database
+      effect: NoSchedule
+  priorityClassName: dbaas-database
+  terminationGracePeriodSeconds: 300
+  podDisruptionBudget:
+    maxUnavailable: 1
+  updateStrategy:
+    type: ReplicasFirstPrimaryLast
+    autoUpdateDataPlane: true
+  tls:
+    enabled: true
+    required: true
+  metrics:
+    enabled: true
+    serviceMonitor:
+      prometheusRelease: kube-prometheus-stack
+      interval: 15s
+      scrapeTimeout: 10s
+  pointInTimeRecoveryRef:
+    name: orders-pitr
+  myCnf: |
+    [mariadb]
+    binlog_format=ROW

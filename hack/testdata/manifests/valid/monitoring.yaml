@@ -1,0 +1,29 @@
+# Monitoring resources the instance charts render (PLAN.md phases 8 and 10).
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: billing
+  namespace: db-billing
+spec:
+  selector:
+    matchLabels:
+      cnpg.io/cluster: billing
+  podMetricsEndpoints:
+    - port: metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: orders
+  namespace: db-orders
+spec:
+  groups:
+    - name: example
+      rules:
+        - alert: DbWriteUnavailable
+          expr: time() - max by (namespace) (db_canary_last_write_success_timestamp_seconds) > 60
+          labels:
+            severity: critical
+          annotations:
+            summary: No canary write has succeeded for 60 seconds

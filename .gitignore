@@ -1,0 +1,3 @@
+# Tools, schemas and virtualenvs built by `make tools` / `make schemas`
+/.bin
+/.cache

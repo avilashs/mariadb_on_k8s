@@ -1,0 +1,93 @@
+# The reference shape of a PostgreSQL instance from PLAN.md phase 10.
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: billing
+  namespace: db-billing
+spec:
+  instances: 3
+  imageName: ghcr.io/cloudnative-pg/postgresql:18
+  primaryUpdateStrategy: unsupervised
+  primaryUpdateMethod: switchover
+  enablePDB: true
+  priorityClassName: dbaas-database
+  storage:
+    size: 100Gi
+    storageClass: db-pv2
+  walStorage:
+    size: 20Gi
+    storageClass: db-pv2
+  affinity:
+    enablePodAntiAffinity: true
+    topologyKey: kubernetes.io/hostname
+    podAntiAffinityType: required
+    nodeSelector:
+      dbaas.local/node-class: pv2-e8
+    tolerations:
+      - key: workload
+        operator: Equal
+        value: database
+        effect: NoSchedule
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          cnpg.io/cluster: billing
+  postgresql:
+    synchronous:
+      method: any
+      number: 1
+      dataDurability: preferred
+  monitoring:
+    enablePodMonitor: false
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: billing-store
+  managed:
+    services:
+      additional:
+        - selectorType: rw
+          serviceTemplate:
+            metadata:
+              name: billing-primary
+        - selectorType: ro
+          serviceTemplate:
+            metadata:
+              name: billing-secondary
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: billing-daily
+  namespace: db-billing
+spec:
+  schedule: "0 0 2 * * *"
+  cluster:
+    name: billing
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: billing-store
+  namespace: db-billing
+spec:
+  retentionPolicy: 30d
+  configuration:
+    destinationPath: https://example.blob.core.windows.net/backups/billing
+    azureCredentials:
+      storageAccount:
+        name: db-backup-credentials
+        key: storage-account
+      storageKey:
+        name: db-backup-credentials
+        key: storage-key
+    wal:
+      compression: gzip

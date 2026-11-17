@@ -1,0 +1,75 @@
+# Single source of truth for every pinned version in this repository.
+#
+# Rules:
+#   - Bump one component at a time. Every bump must pass `make verify` and,
+#     from phase 1 on, the e2e matrix.
+#   - mariadb-operator must be upgraded one release at a time, never skipping.
+#   - The `tools` block is read by hack/lib.sh with a line-based parser:
+#     keep it flat, two-space indented, one `name: version` per line.
+#
+# Every version below was checked against its registry on 2026-11-17.
+---
+kubernetes: v1.36.4               # test cluster (kindest/node), kubectl, manifest schemas
+
+tools:
+  go: 1.24.0                      # minimum; newer toolchains are fetched on demand
+  helm: v4.3.2
+  helmfile: v1.8.4
+  helm-unittest: v1.2.1
+  kubectl: v1.36.4
+  kind: v0.33.0
+  kubeconform: v0.8.0
+  promtool: v3.16.0               # built from Go module github.com/prometheus/prometheus v0.316.0
+  yq: v4.54.3
+  pluto: v5.24.5
+  yamllint: v1.38.0
+  shellcheck: v0.11.0             # installed from the shellcheck-py wheel 0.11.0.1
+
+operators:
+  mariadb:
+    version: 26.10.2
+    crdsChart: oci://ghcr.io/mariadb-operator/charts/mariadb-operator-crds
+    chart: oci://ghcr.io/mariadb-operator/charts/mariadb-operator
+  postgres:
+    version: 1.30.1
+    chart: oci://ghcr.io/cloudnative-pg/charts/cloudnative-pg
+    chartVersion: 0.29.1
+    barmanCloudPlugin:
+      version: 0.16.0
+      chart: oci://ghcr.io/cloudnative-pg/charts/plugin-barman-cloud
+      chartVersion: 0.9.0
+
+engines:
+  mariadb: "11.8"                 # LTS; image digest is pinned per environment in phase 3
+  postgres: "18"
+
+platform:
+  certManager:
+    version: v1.21.3
+    chart: oci://quay.io/jetstack/charts/cert-manager
+  kubePrometheusStack:
+    version: 82.16.0
+    chart: oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack
+  localCsiDriver:                 # AKS local NVMe tier (Microsoft, open source)
+    version: 0.4.1
+    chart: oci://localcsidriver.azurecr.io/acstor/charts/local-csi-driver
+
+# CRDs that `make schemas` turns into strict validation schemas. Each source
+# follows the version found at `versionFrom`, so a bump above moves the schemas
+# with it. Placeholders: {version} is that version, {minor} its first two parts.
+# Add a source when a chart starts rendering a new kind.
+crdSources:
+  - versionFrom: .operators.mariadb.version
+    urls:
+      - https://raw.githubusercontent.com/mariadb-operator/mariadb-operator/{version}/deploy/crds/crds.yaml
+  - versionFrom: .operators.postgres.version
+    urls:
+      - https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-{minor}/releases/cnpg-{version}.yaml
+  - versionFrom: .operators.postgres.barmanCloudPlugin.version
+    urls:
+      - https://raw.githubusercontent.com/cloudnative-pg/plugin-barman-cloud/v{version}/config/crd/bases/barmancloud.cnpg.io_objectstores.yaml
+  - versionFrom: .platform.kubePrometheusStack.version
+    urls:
+      - https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-{version}/charts/kube-prometheus-stack/charts/crds/crds/crd-servicemonitors.yaml
+      - https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-{version}/charts/kube-prometheus-stack/charts/crds/crds/crd-podmonitors.yaml
+      - https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-{version}/charts/kube-prometheus-stack/charts/crds/crds/crd-prometheusrules.yaml

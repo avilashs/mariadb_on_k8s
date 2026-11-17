@@ -1,0 +1,7 @@
+# expect: could not find schema
+# A kind without a schema must fail rather than be skipped.
+---
+apiVersion: example.invalid/v1
+kind: NoSuchThing
+metadata:
+  name: nothing
