@@ -39,7 +39,10 @@ func openPostgres(host string, cfg DBConfig, tlsConf *tls.Config) (*sql.DB, erro
 	c.Password = cfg.Password
 	c.Database = cfg.Database
 	c.ConnectTimeout = cfg.Timeout
-	c.TLSConfig = tlsConf
+	// pgx needs the server name of the certificate it verifies: the Service the canary dials.
+	tc := tlsConf.Clone()
+	tc.ServerName = host
+	c.TLSConfig = tc
 	db := stdlib.OpenDB(*c)
 	db.SetConnMaxLifetime(5 * time.Minute)
 	db.SetConnMaxIdleTime(time.Minute)
