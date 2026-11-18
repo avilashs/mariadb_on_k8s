@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "nohup \"$CLAUDE_PROJECT_DIR/hack/restore-sandbox.sh\" >/dev/null 2>&1 &",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
