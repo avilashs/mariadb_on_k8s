@@ -8,7 +8,8 @@
 //	GET  /metrics   Prometheus series db_canary_*
 //	GET  /report    JSON report; verifies acknowledged writes before answering
 //	POST /reset     clears the measurement window
-//	GET  /healthz   200 once the canary runs
+//	GET  /healthz   liveness: 200 while the process serves
+//	GET  /readyz    readiness: 200 once the heartbeat table exists
 package main
 
 import (
@@ -22,6 +23,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -159,10 +161,20 @@ func migrate(ctx context.Context, log *slog.Logger, s Writer) error {
 	}
 }
 
-func serve(ctx context.Context, log *slog.Logger, o options, c *Canary, reg *prometheus.Registry) error {
+// serve answers liveness on /healthz from the start. Readiness on /readyz waits for the
+// heartbeat table: a canary that cannot reach its database yet must not be killed by its
+// liveness probe, and must not be counted as Ready.
+func serve(ctx context.Context, log *slog.Logger, o options, c *Canary, reg *prometheus.Registry, ready *atomic.Bool) error {
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
+		if !ready.Load() {
+			http.Error(w, "the heartbeat table is not ready", http.StatusServiceUnavailable)
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.HandleFunc("GET /report", func(w http.ResponseWriter, r *http.Request) {
@@ -225,9 +237,23 @@ func main() {
 		os.Exit(2)
 	}
 
+	// The HTTP endpoints start first, so that the probes get answers while the database is down.
+	var ready atomic.Bool
+	errc := make(chan error, 1)
+	go func() { errc <- serve(ctx, log, o, c, reg, &ready) }()
+
+	if err := migrate(ctx, log, store); err != nil {
+		log.Info("stopped before the table existed", "error", err.Error())
+		if serveErr := <-errc; serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			log.Error("http server stopped", "error", serveErr.Error())
+			os.Exit(1)
+		}
+		return
+	}
+	ready.Store(true)
 	log.Info("canary running", "engine", o.engine, "writer", o.writer, "interval", o.interval.String())
 	go c.Run(ctx)
-	if err := serve(ctx, log, o, c, reg); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	if err := <-errc; err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Error("http server stopped", "error", err.Error())
 		os.Exit(1)
 	}
