@@ -219,9 +219,12 @@ declared_state() {
 }
 
 normalise() {
+  # Annotations set by controllers and admission webhooks are not declared state:
+  # meta.helm.sh/* is Helm's bookkeeping, and prometheus-operator-validated is added
+  # by the Prometheus Operator admission webhook the first time an object is updated.
   jq -c '{
     kind, namespace: .metadata.namespace, name: .metadata.name,
-    labels: .metadata.labels, annotations: ((.metadata.annotations // {}) | with_entries(select(.key | startswith("meta.helm.sh") | not))),
+    labels: .metadata.labels, annotations: ((.metadata.annotations // {}) | with_entries(select(.key | startswith("meta.helm.sh") or . == "prometheus-operator-validated" | not))),
     generation: .metadata.generation, spec: .spec, data: .data, rules: .rules, subjects: .subjects, roleRef: .roleRef
   } | del(.. | nulls)' | sort
 }

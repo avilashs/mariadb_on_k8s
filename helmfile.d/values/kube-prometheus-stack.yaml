@@ -28,6 +28,13 @@ alertmanager:
       pool: system
     priorityClassName: dbaas-platform
 grafana:
+  # The admin Secret is created once by hack/platform-up.sh and kept. Letting the
+  # chart generate it regenerates the password on every apply, because the chart
+  # only reuses a password it can look up at render time.
+  admin:
+    existingSecret: dbaas-grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
   nodeSelector:
     pool: system
   priorityClassName: dbaas-platform

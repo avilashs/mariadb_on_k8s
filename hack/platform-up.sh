@@ -27,6 +27,30 @@ export HELM_CACHE_HOME="${CACHE}/helm/cache"
 export HELM_CONFIG_HOME="${CACHE}/helm/config"
 export HELM_DATA_HOME="${CACHE}/helm/data"
 
-log "syncing platform for ENV=${ENV} into context ${context}"
-(cd "${ROOT}" && helmfile -f helmfile.d/00-platform.yaml.gotmpl sync --skip-deps)
+# ensure_grafana_admin_secret: Grafana's admin credentials are created once and
+# never regenerated. The chart would otherwise pick a new password on every apply.
+ensure_grafana_admin_secret() {
+  local name="dbaas-grafana-admin"
+  if [[ "$(yq -r '.monitoring.install' "${platform_file}")" != "true" ]]; then
+    return 0
+  fi
+  if kubectl --context "${context}" -n monitoring get secret "${name}" >/dev/null 2>&1; then
+    return 0
+  fi
+  log "creating ${name} (generated once)"
+  kubectl --context "${context}" -n monitoring create secret generic "${name}" \
+    --from-literal=admin-user=admin \
+    --from-literal=admin-password="$(openssl rand -base64 36 | tr -dc 'A-Za-z0-9' | cut -c1-32)" >/dev/null
+}
+
+helmfile_sync() {
+  (cd "${ROOT}" && helmfile -f helmfile.d/00-platform.yaml.gotmpl sync --skip-deps "$@")
+}
+
+log "syncing the platform base for ENV=${ENV} into context ${context}"
+helmfile_sync --selector name=db-platform-base
+# The base creates the monitoring namespace, which must exist before its secret.
+ensure_grafana_admin_secret
+log "syncing the rest of the platform for ENV=${ENV}"
+helmfile_sync
 log "platform for ENV=${ENV} is in place"
