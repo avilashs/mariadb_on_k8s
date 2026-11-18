@@ -1,0 +1,48 @@
+{{- /*
+Admission rules for every managed database namespace (PLAN.md phase 4). A resource
+created by hand must meet the same guarantees as one rendered by a chart: replication
+on, at least two pods, and one pod per node within the instance. These are enforced
+by the API server, not by the chart, so they also hold for a resource applied with
+kubectl.
+*/ -}}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: dbaas-mariadb-guarantees
+  labels:
+    app.kubernetes.io/part-of: dbaas
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    namespaceSelector:
+      matchLabels:
+        dbaas.local/managed: "true"
+    resourceRules:
+      - apiGroups: ["k8s.mariadb.com"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["mariadbs"]
+  validations:
+    - expression: "has(object.spec.replication) && object.spec.replication.enabled == true"
+      message: "a managed MariaDB must run replication (spec.replication.enabled: true)"
+    - expression: "has(object.spec.replicas) && object.spec.replicas >= 2"
+      message: "a managed MariaDB must have at least two pods (spec.replicas >= 2)"
+    - expression: >-
+        has(object.spec.affinity) && has(object.spec.affinity.podAntiAffinity) &&
+        has(object.spec.affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution) &&
+        object.spec.affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution.exists(t, t.topologyKey == "kubernetes.io/hostname")
+      message: "a managed MariaDB must require one pod per node (required anti-affinity on kubernetes.io/hostname)"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: dbaas-mariadb-guarantees
+  labels:
+    app.kubernetes.io/part-of: dbaas
+spec:
+  policyName: dbaas-mariadb-guarantees
+  validationActions: ["Deny"]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        dbaas.local/managed: "true"

@@ -1,0 +1,44 @@
+{{- $name := include "dbaas.accessName" . -}}
+{{- if eq .Values.stage "users" }}
+{{- range .Values.databases }}
+{{- $db := required "each databases entry needs a name" .name }}
+{{- $owner := required (printf "database %s needs an owner" $db) .owner }}
+{{- if not (regexMatch "^[a-z][a-z0-9_]{0,30}$" $db) }}
+{{- fail (printf "database name %q must match ^[a-z][a-z0-9_]{0,30}$" $db) }}
+{{- end }}
+{{- if not (regexMatch "^[a-z][a-z0-9_]{0,30}$" $owner) }}
+{{- fail (printf "owner name %q must match ^[a-z][a-z0-9_]{0,30}$" $owner) }}
+{{- end }}
+---
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: Database
+metadata:
+  name: {{ $name }}-{{ include "dbaas.ident" $db }}
+  namespace: db-{{ $name }}
+  labels:
+    app.kubernetes.io/part-of: dbaas
+spec:
+  mariaDbRef:
+    name: {{ $name }}
+  name: {{ $db }}
+  characterSet: utf8mb4
+  collate: utf8mb4_general_ci
+---
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: User
+metadata:
+  name: {{ $name }}-{{ include "dbaas.ident" $owner }}
+  namespace: db-{{ $name }}
+  labels:
+    app.kubernetes.io/part-of: dbaas
+spec:
+  mariaDbRef:
+    name: {{ $name }}
+  name: {{ $owner }}
+  # The Secret is created once by scripts/ensure-secret.sh before the instance syncs.
+  passwordSecretKeyRef:
+    name: {{ $name }}-{{ include "dbaas.ident" $owner }}-credentials
+    key: password
+  maxUserConnections: 100
+{{- end }}
+{{- end }}

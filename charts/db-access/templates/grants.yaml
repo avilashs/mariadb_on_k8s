@@ -1,0 +1,25 @@
+{{- $name := include "dbaas.accessName" . -}}
+{{- if eq .Values.stage "grants" }}
+{{- range .Values.databases }}
+{{- $db := .name }}
+{{- $owner := .owner }}
+---
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: Grant
+metadata:
+  name: {{ $name }}-{{ include "dbaas.ident" $owner }}-{{ include "dbaas.ident" $db }}
+  namespace: db-{{ $name }}
+  labels:
+    app.kubernetes.io/part-of: dbaas
+spec:
+  mariaDbRef:
+    name: {{ $name }}
+  privileges:
+    - ALL PRIVILEGES
+  database: {{ $db | quote }}
+  table: "*"
+  username: {{ $owner | quote }}
+  host: "%"
+  grantOption: false
+{{- end }}
+{{- end }}

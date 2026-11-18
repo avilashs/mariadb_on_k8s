@@ -1,0 +1,5 @@
+name: orders
+stage: grants
+databases:
+  - name: orders
+    owner: orders_app

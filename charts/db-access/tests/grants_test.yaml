@@ -1,0 +1,18 @@
+suite: grants stage
+templates:
+  - templates/grants.yaml
+values:
+  - ../ci/grants.yaml
+tests:
+  - it: creates one grant per database, and no user
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Grant
+      - equal:
+          path: spec.privileges[0]
+          value: ALL PRIVILEGES
+      - equal:
+          path: spec.username
+          value: orders_app

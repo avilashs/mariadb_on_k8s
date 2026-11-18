@@ -14,12 +14,22 @@ if [[ "${ENGINE}" != "mariadb" ]]; then
   exit 0
 fi
 
-NAME=topo
+# The instance under test. By default the suite installs its own instance on
+# kind-pv2. The multi-instance suite points it at instances that already exist:
+#   TOPOLOGY_INSTANCE=alpha TOPOLOGY_INSTALL=0 TOPOLOGY_DATABASE=orders TOPOLOGY_OWNER=orders_app
+NAME="${TOPOLOGY_INSTANCE:-topo}"
 NS="db-${NAME}"
+DATABASE="${TOPOLOGY_DATABASE:-orders}"
+OWNER="${TOPOLOGY_OWNER:-orders_app}"
+OWNER_SECRET="${NAME}-$(tr '_' '-' <<<"${OWNER}")-credentials"
 
-log "topology acceptance: instance ${NAME} on kind-pv2"
-trap 'instance_down "${NAME}"' EXIT
-instance_up "${NAME}" kind-pv2 small 2
+if [[ "${TOPOLOGY_INSTALL:-1}" == "1" ]]; then
+  log "topology acceptance: instance ${NAME} on kind-pv2"
+  trap 'instance_down "${NAME}"' EXIT
+  instance_up "${NAME}" kind-pv2 small 2
+else
+  log "topology acceptance: existing instance ${NAME} (database ${DATABASE}, owner ${OWNER})"
+fi
 
 primary() { kc -n "${NS}" get mariadb "${NAME}" -o jsonpath='{.status.currentPrimary}'; }
 pods() { kc -n "${NS}" get pods -l "app.kubernetes.io/instance=${NAME}" -o jsonpath='{.items[*].metadata.name}'; }
@@ -72,11 +82,11 @@ check_row_reaches_replicas() {
   password="$(kc -n "${NS}" get secret "${NAME}-root" -o jsonpath='{.data.password}' | base64 -d)"
   pod="$(replica_pods | head -n1)"
   kc -n "${NS}" exec "$(primary)" -c mariadb -- mariadb --ssl -h "${NAME}-primary" -uroot -p"${password}" \
-    -e "CREATE TABLE IF NOT EXISTS orders.e2e (v VARCHAR(64) PRIMARY KEY); INSERT INTO orders.e2e VALUES ('${marker}')" >/dev/null
+    -e "CREATE TABLE IF NOT EXISTS ${DATABASE}.e2e (v VARCHAR(64) PRIMARY KEY); INSERT INTO ${DATABASE}.e2e VALUES ('${marker}')" >/dev/null
   deadline=$((SECONDS + 5))
   while :; do
     value="$(kc -n "${NS}" exec "${pod}" -c mariadb -- \
-      mariadb --ssl -h "${NAME}-secondary" -uroot -p"${password}" -N -e "SELECT v FROM orders.e2e WHERE v='${marker}'" 2>/dev/null || true)"
+      mariadb --ssl -h "${NAME}-secondary" -uroot -p"${password}" -N -e "SELECT v FROM ${DATABASE}.e2e WHERE v='${marker}'" 2>/dev/null || true)"
     [[ "${value}" == "${marker}" ]] && return 0
     ((SECONDS < deadline)) || { echo "row ${marker} did not reach ${NAME}-secondary within 5 seconds"; return 1; }
     sleep 1
@@ -86,12 +96,12 @@ check_row_reaches_replicas() {
 check_secondary_refuses_application_writes() {
   # The application account is the one that must be refused on a replica. Root is
   # not checked here: MariaDB has no super_read_only, so SUPER accounts can write to
-  # a replica. Applications never receive root (see docs/operations.md).
+  # a replica. Applications never receive root (see docs/app-developer-guide.md).
   local pod password output
   pod="$(replica_pods | head -n1)"
-  password="$(kc -n "${NS}" get secret "${NAME}-orders-app-credentials" -o jsonpath='{.data.password}' | base64 -d)"
+  password="$(kc -n "${NS}" get secret "${OWNER_SECRET}" -o jsonpath='{.data.password}' | base64 -d)"
   output="$(kc -n "${NS}" exec "${pod}" -c mariadb -- \
-    mariadb --ssl -h "${NAME}-secondary" -uorders_app -p"${password}" orders -e "INSERT INTO e2e VALUES ('from-secondary')" 2>&1 || true)"
+    mariadb --ssl -h "${NAME}-secondary" -u"${OWNER}" -p"${password}" "${DATABASE}" -e "INSERT INTO e2e VALUES ('from-secondary')" 2>&1 || true)"
   grep -q "read-only option" <<<"${output}" || { echo "application write through ${NAME}-secondary was not refused as read-only: ${output}"; return 1; }
 }
 

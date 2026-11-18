@@ -75,6 +75,19 @@ instance_up() {
   helm --kube-context "${CONTEXT}" upgrade --install "${name}" "${ROOT}/charts/mariadb-instance" \
     --namespace "${ns}" --values "${values}" --wait=false >/dev/null
   kc -n "${ns}" wait "mariadb/${name}" --for=condition=Ready --timeout=900s >/dev/null
+  access_up "${name}" "${values}"
+}
+
+# access_up <name> <values-file>: databases, users, then grants, as the helmfile does.
+access_up() {
+  local name="$1" values="$2" stage out
+  [[ "$(yq -r '.access.databases | length' "${values}")" == "0" ]] && return 0
+  for stage in users grants; do
+    out="${CACHE}/e2e/${name}-${stage}.yaml"
+    yq -n ".name = \"${name}\" | .stage = \"${stage}\" | .databases = load(\"${values}\").access.databases" >"${out}"
+    helm --kube-context "${CONTEXT}" upgrade --install "${name}-${stage}" "${ROOT}/charts/db-access" \
+      --namespace "db-${name}" --values "${out}" --wait --timeout 600s >/dev/null
+  done
 }
 
 # instance_down <name>: removes an instance. Deletion protection keeps the MariaDB
@@ -82,6 +95,8 @@ instance_up() {
 instance_down() {
   local name="$1" ns="db-$1"
   kc -n "${ns}" delete mariadb "${name}" --wait=true --timeout=600s >/dev/null 2>&1 || true
+  helm --kube-context "${CONTEXT}" uninstall "${name}-grants" --namespace "${ns}" >/dev/null 2>&1 || true
+  helm --kube-context "${CONTEXT}" uninstall "${name}-users" --namespace "${ns}" >/dev/null 2>&1 || true
   helm --kube-context "${CONTEXT}" uninstall "${name}" --namespace "${ns}" >/dev/null 2>&1 || true
   helm --kube-context "${CONTEXT}" uninstall "ns-${name}" >/dev/null 2>&1 || true
   kc delete namespace "${ns}" --wait=false >/dev/null 2>&1 || true

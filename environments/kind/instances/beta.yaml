@@ -1,0 +1,12 @@
+# A small instance on the local-nvme node class. Backups are required there (PLAN.md 7.5).
+name: beta
+engine: mariadb
+size: small
+replicas: 2
+nodeClass: kind-nvme
+backup:
+  enabled: true
+access:
+  databases:
+    - name: ledger
+      owner: ledger_app

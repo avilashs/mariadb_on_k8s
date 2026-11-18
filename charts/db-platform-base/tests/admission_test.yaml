@@ -1,0 +1,32 @@
+suite: admission guarantees
+templates:
+  - templates/admission.yaml
+values:
+  - ../ci/kind.yaml
+tests:
+  - it: binds the policy to managed namespaces, denying violations
+    asserts:
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: spec.validationActions[0]
+          value: Deny
+        documentIndex: 1
+      - equal:
+          path: spec.matchResources.namespaceSelector.matchLabels["dbaas.local/managed"]
+          value: "true"
+        documentIndex: 1
+  - it: checks the three guarantees of a managed MariaDB
+    asserts:
+      - equal:
+          path: spec.matchConstraints.resourceRules[0].resources[0]
+          value: mariadbs
+        documentIndex: 0
+      - hasDocuments:
+          count: 2
+  - it: states the replica count rule with the plan's value
+    asserts:
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "spec.replicas >= 2"
+        documentIndex: 0

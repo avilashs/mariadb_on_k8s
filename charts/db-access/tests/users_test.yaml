@@ -1,0 +1,31 @@
+suite: users stage
+templates:
+  - templates/users.yaml
+values:
+  - ../ci/users.yaml
+tests:
+  - it: creates a database and its owner, and no grant
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: Database
+        documentIndex: 0
+      - isKind:
+          of: User
+        documentIndex: 1
+      - equal:
+          path: spec.passwordSecretKeyRef.name
+          value: orders-orders-app-credentials
+        documentIndex: 1
+      - notExists:
+          path: spec.password
+        documentIndex: 1
+  - it: rejects a database name that breaks the rule
+    set:
+      databases:
+        - name: Orders-DB
+          owner: orders_app
+    asserts:
+      - failedTemplate:
+          errorMessage: "database name \"Orders-DB\" must match ^[a-z][a-z0-9_]{0,30}$"

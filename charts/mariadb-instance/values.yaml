@@ -64,10 +64,10 @@ scheduling:
 
 access:
   tlsRequired: true
-  # Each entry creates a Database, a User owning it, and a Grant on all its tables.
+  # Not rendered here. The db-access releases (users, then grants) create a Database,
+  # a User and a Grant per entry. The field lives in the instance file so that one
+  # file describes the whole instance.
   databases: []
-  # - name: orders
-  #   owner: orders_app
 
 backup:
   # Phase 5 renders the backup schedules. On the local-nvme tier, enabling backups is

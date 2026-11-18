@@ -1,0 +1,80 @@
+# One release pair per instance file (PLAN.md phase 4).
+#
+#   ENV=kind helmfile -f helmfile.d/10-instances.yaml.gotmpl sync
+#
+# Every file in environments/$ENV/instances/ is an instance. Adding a file adds an
+# instance; deleting a file does NOT delete it. Helmfile never removes a release it
+# no longer sees. Removal is the documented two-step procedure (docs/operations.md):
+# scripts/instance-remove.sh.
+#
+# INSTANCES_DIR overrides the directory (the e2e suites use it to model a removal).
+# The platform (00-platform) must already be installed.
+#
+# Two phases, run by hack/instances-up.sh: the namespaces first (role=namespace), then
+# the credentials Secrets the Users need, then the instances (role=instance).
+{{- $env := requiredEnv "ENV" }}
+{{- $platform := readFile (printf "../environments/%s/platform.yaml" $env) | fromYaml }}
+{{- $dir := env "INSTANCES_DIR" | default (printf "../environments/%s/instances" $env) }}
+{{- $catalogue := dict "storageTiers" $platform.storageTiers "storageClasses" $platform.storageClasses "nodeClasses" $platform.nodeClasses }}
+{{- $files := readDir $dir }}
+
+helmDefaults:
+  kubeContext: {{ $platform.kubeContext | quote }}
+  wait: true
+  waitForJobs: true
+  timeout: 600
+  historyMax: 5
+  createNamespace: false
+
+releases:
+{{- range $file := $files }}
+{{- if hasSuffix ".yaml" $file }}
+{{- $inst := readFile $file | fromYaml }}
+{{- $name := $inst.name | required (printf "%s: name is required" $file) }}
+{{- if ne $inst.engine "mariadb" }}
+{{- fail (printf "%s: engine %q is not available yet (postgres arrives with phase 10)" $file $inst.engine) }}
+{{- end }}
+  # Namespace first, from the db-namespace chart. Its release record lives in default,
+  # because the namespace it creates does not exist yet.
+  - name: ns-{{ $name }}
+    namespace: default
+    chart: ../charts/db-namespace
+    labels:
+      role: namespace
+    values:
+      - {{ dict "name" $name "engine" $inst.engine "quota" (index $inst "quota" | default dict) | toJson }}
+
+  - name: {{ $name }}
+    namespace: db-{{ $name }}
+    chart: ../charts/mariadb-instance
+    labels:
+      role: instance
+    needs:
+      - default/ns-{{ $name }}
+    values:
+      - {{ merge (deepCopy $inst) (dict "catalogue" $catalogue) | toJson }}
+{{- $databases := index (index $inst "access" | default dict) "databases" | default list }}
+{{- if $databases }}
+  # Users, then grants: a grant on a user that does not exist yet backs off for a long time.
+  - name: {{ $name }}-users
+    namespace: db-{{ $name }}
+    chart: ../charts/db-access
+    labels:
+      role: instance
+    needs:
+      - db-{{ $name }}/{{ $name }}
+    values:
+      - {{ dict "name" $name "stage" "users" "databases" $databases | toJson }}
+
+  - name: {{ $name }}-grants
+    namespace: db-{{ $name }}
+    chart: ../charts/db-access
+    labels:
+      role: instance
+    needs:
+      - db-{{ $name }}/{{ $name }}-users
+    values:
+      - {{ dict "name" $name "stage" "grants" "databases" $databases | toJson }}
+{{- end }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: db-access
+description: Databases, users and grants of one instance, in two stages. Users first, then grants; a grant on a missing user backs off for a long time.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

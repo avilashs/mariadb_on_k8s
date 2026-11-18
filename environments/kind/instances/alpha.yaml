@@ -1,0 +1,10 @@
+# A small instance on the premium-ssd-v2 node class of the kind environment.
+name: alpha
+engine: mariadb
+size: small
+replicas: 2
+nodeClass: kind-pv2
+access:
+  databases:
+    - name: orders
+      owner: orders_app

@@ -62,7 +62,7 @@ schemas: ## Generate strict JSON Schemas from the pinned operator CRDs
 verify: lint unit ## Everything that needs no cluster: lint + unit
 
 .PHONY: lint
-lint: lint-yaml lint-shell lint-charts lint-platform lint-rules lint-go ## All static checks
+lint: lint-yaml lint-shell lint-charts lint-platform lint-instances lint-rules lint-go ## All static checks
 
 .PHONY: lint-yaml
 lint-yaml:
@@ -83,6 +83,11 @@ lint-platform: schemas ## Render the platform for ENV and validate every object 
 	@echo "==> render and validate the platform for ENV=$(ENV)"
 	@cd $(ROOT) && ENV=$(ENV) helmfile -f helmfile.d/00-platform.yaml.gotmpl template --skip-deps >$(CACHE)/platform-rendered.yaml
 	@$(ROOT)/hack/kubeconform.sh -summary $(CACHE)/platform-rendered.yaml
+
+.PHONY: lint-instances
+lint-instances: schemas ## Validate every instance file of every environment
+	@echo "==> validate instance files"
+	@$(ROOT)/hack/lint-instances.sh
 
 .PHONY: lint-rules
 lint-rules:
@@ -164,12 +169,16 @@ images: ## Build the db-canary and drain-guard images (phase 6)
 	$(call not_yet,6)
 
 .PHONY: instances-up
-instances-up: ## Sync every instance of ENV (phase 4)
-	$(call not_yet,4)
+instances-up: schemas ## Sync every instance file of ENV (idempotent; deleting a file does not delete the instance)
+	@ENV=$(ENV) $(ROOT)/hack/instances-up.sh
 
 .PHONY: instance-new
-instance-new: ## Scaffold an instance: NAME=<name> SIZE=<size> NODE_CLASS=<class> (phase 4)
-	$(call not_yet,4)
+instance-new: ## Scaffold and validate an instance: NAME=<name> ENGINE=mariadb SIZE=<small|medium|large> NODE_CLASS=<class>
+	@ENV=$(ENV) $(ROOT)/scripts/instance-new.sh "$(NAME)" "$(ENGINE)" "$(SIZE)" "$(NODE_CLASS)"
+
+.PHONY: instance-remove
+instance-remove: ## Remove an instance whose file is already deleted: NAME=<name>
+	@ENV=$(ENV) $(ROOT)/scripts/instance-remove.sh "$(NAME)"
 
 ##@ End-to-end suites
 
