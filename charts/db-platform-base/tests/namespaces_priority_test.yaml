@@ -9,8 +9,8 @@ tests:
     template: templates/namespaces.yaml
     asserts:
       - hasDocuments:
-          count: 2
-      # Sorted keys: 0 dbaas-system, 1 monitoring.
+          count: 3
+      # Sorted keys: 0 dbaas-system, 1 mariadb-system, 2 monitoring.
       - equal:
           path: metadata.name
           value: dbaas-system
@@ -21,8 +21,12 @@ tests:
         documentIndex: 0
       - equal:
           path: metadata.labels["pod-security.kubernetes.io/enforce"]
-          value: privileged
+          value: baseline
         documentIndex: 1
+      - equal:
+          path: metadata.labels["pod-security.kubernetes.io/enforce"]
+          value: privileged
+        documentIndex: 2
   - it: creates two non-default priority classes with the plan's values
     template: templates/priorityclasses.yaml
     asserts:

@@ -8,6 +8,9 @@ set -euo pipefail
 # shellcheck source=tests/e2e/lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
+# Namespaces whose pods must be ready, on the platform priority class, and on the system pool.
+PLATFORM_PODS_NAMESPACES="cert-manager monitoring object-store mariadb-system"
+
 log "platform acceptance for ENV=${ENV} (context ${CONTEXT})"
 
 # ---------------------------------------------------------------- nodes
@@ -42,7 +45,7 @@ check_no_platform_pod_on_database_nodes() {
   nodes="$(node_labels)"
   pods="$(kc get pods -A -o json)"
   jq -e --argjson nodes "${nodes}" '
-    [.items[] | select(.metadata.namespace | IN("cert-manager", "monitoring", "dbaas-system", "object-store"))
+    [.items[] | select(.metadata.namespace | IN("cert-manager", "monitoring", "dbaas-system", "object-store", "mariadb-system"))
      | . as $p | select($nodes.items[] | select(.metadata.name == $p.spec.nodeName and .metadata.labels["workload"] == "database"))]
     | length == 0
   ' <<<"${pods}" >/dev/null || { echo "a platform pod runs on a database node"; return 1; }
@@ -87,7 +90,7 @@ check_namespaces() {
 # containers ready, or Succeeded. Returns non-zero while anything still starts.
 platform_settled() {
   local ns
-  for ns in cert-manager monitoring object-store; do
+  for ns in ${PLATFORM_PODS_NAMESPACES}; do
     kc get pods -n "${ns}" -o json | jq -e '
       [.items[] | select(.status.phase != "Succeeded")
         | select((.status.phase != "Running") or ([.status.containerStatuses[]? | .ready] | all | not))]
@@ -109,7 +112,7 @@ check_pods_ready() {
   # Every pod in the platform namespaces is Running with all containers ready, or
   # Succeeded (the bucket Job). Nothing is pending or crash-looping.
   local ns bad
-  for ns in cert-manager monitoring object-store; do
+  for ns in ${PLATFORM_PODS_NAMESPACES}; do
     bad="$(kc get pods -n "${ns}" -o json | jq -r '
       .items[] | select(.status.phase != "Succeeded")
       | select((.status.phase != "Running") or ([.status.containerStatuses[]? | .ready] | all | not))
@@ -120,7 +123,7 @@ check_pods_ready() {
 
 check_platform_pods_use_priority() {
   local ns bad
-  for ns in cert-manager monitoring object-store; do
+  for ns in ${PLATFORM_PODS_NAMESPACES}; do
     bad="$(kc get pods -n "${ns}" -o json | jq -r '.items[] | select(.spec.priorityClassName != "dbaas-platform") | .metadata.name')"
     [[ -z "${bad}" ]] || { echo "pods without dbaas-platform priority in ${ns}: ${bad}"; return 1; }
   done
@@ -203,8 +206,8 @@ check_grafana() {
 # and generation. Runtime status, resourceVersion and managedFields are excluded,
 # because controllers update those on their own schedules.
 declared_state() {
-  local namespaces="cert-manager monitoring object-store dbaas-system"
-  local kinds="deployments statefulsets daemonsets services configmaps serviceaccounts roles rolebindings clusterroles clusterrolebindings jobs ingresses prometheuses alertmanagers servicemonitors podmonitors prometheusrules certificates issuers"
+  local namespaces="cert-manager monitoring object-store dbaas-system mariadb-system"
+  local kinds="deployments statefulsets daemonsets services configmaps serviceaccounts roles rolebindings clusterroles clusterrolebindings jobs ingresses prometheuses alertmanagers servicemonitors podmonitors prometheusrules certificates issuers poddisruptionbudgets"
   local ns kind
   for ns in ${namespaces}; do
     for kind in ${kinds}; do

@@ -61,3 +61,5 @@ namespaces:
     enforce: privileged
     audit: privileged
     warn: privileged
+  mariadb-system:
+    enforce: baseline

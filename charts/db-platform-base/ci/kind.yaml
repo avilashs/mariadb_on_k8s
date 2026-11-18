@@ -21,3 +21,4 @@ nodeClasses:
 namespaces:
   dbaas-system: {enforce: baseline}
   monitoring: {enforce: privileged, audit: privileged, warn: privileged}
+  mariadb-system: {enforce: baseline}

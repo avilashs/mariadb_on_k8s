@@ -12,6 +12,7 @@
 {{- $platform := readFile (printf "../environments/%s/platform.yaml" $env) | fromYaml }}
 {{- $versions := readFile "../versions.yaml" | fromYaml }}
 {{- $platformVersions := $versions.platform }}
+{{- $mariadbOperator := $versions.operators.mariadb }}
 {{- $base := list "default/db-platform-base" }}
 
 helmDefaults:
@@ -40,6 +41,23 @@ releases:
     needs: {{ toJson $base }}
     values:
       - {{ dict "crds" (dict "enabled" true) "global" (dict "priorityClassName" "dbaas-platform") "nodeSelector" (dict "pool" "system") "webhook" (dict "nodeSelector" (dict "pool" "system")) "cainjector" (dict "nodeSelector" (dict "pool" "system")) | toJson }}
+
+  - name: mariadb-operator-crds
+    namespace: mariadb-system
+    createNamespace: false
+    chart: {{ $mariadbOperator.crdsChart }}
+    version: {{ $mariadbOperator.version | quote }}
+    needs: {{ toJson $base }}
+
+  - name: mariadb-operator
+    namespace: mariadb-system
+    createNamespace: false
+    chart: {{ $mariadbOperator.chart }}
+    version: {{ $mariadbOperator.version | quote }}
+    needs:
+      - mariadb-system/mariadb-operator-crds
+    values:
+      - values/mariadb-operator.yaml
 
 {{- if eq (dig "monitoring" "install" false $platform) true }}
   - name: {{ dig "monitoring" "prometheusRelease" "kube-prometheus-stack" $platform }}

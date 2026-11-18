@@ -1,0 +1,76 @@
+# Environment-independent settings for the community mariadb-operator (PLAN.md phase 2).
+#
+# Every component of the operator runs two replicas on different system nodes,
+# and each component is spread separately (a component's replicas never share a
+# node with each other). The kind test environment has two system nodes, so two
+# replicas is the most that fits; production uses three (ha.replicas) across zones.
+#
+# The chart creates CRDs only when crds.enabled is set. The CRDs are managed by
+# the separate mariadb-operator-crds release instead, so that uninstalling the
+# operator can never delete MariaDB instances.
+crds:
+  enabled: false
+
+logLevel: INFO
+
+nodeSelector:
+  pool: system
+priorityClassName: dbaas-platform
+
+ha:
+  enabled: true
+  replicas: 2
+pdb:
+  enabled: true
+  maxUnavailable: 1
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - topologyKey: kubernetes.io/hostname
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: mariadb-operator
+            app.kubernetes.io/instance: mariadb-operator
+
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+
+webhook:
+  nodeSelector:
+    pool: system
+  priorityClassName: dbaas-platform
+  ha:
+    enabled: true
+    replicas: 2
+  pdb:
+    enabled: true
+    maxUnavailable: 1
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - topologyKey: kubernetes.io/hostname
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: mariadb-operator-webhook
+              app.kubernetes.io/instance: mariadb-operator
+
+certController:
+  nodeSelector:
+    pool: system
+  priorityClassName: dbaas-platform
+  ha:
+    enabled: true
+    replicas: 2
+  pdb:
+    enabled: true
+    maxUnavailable: 1
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - topologyKey: kubernetes.io/hostname
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: mariadb-operator-cert-controller
+              app.kubernetes.io/instance: mariadb-operator
