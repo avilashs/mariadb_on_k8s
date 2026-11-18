@@ -46,7 +46,7 @@ if [[ -n "${PROM}" ]]; then
   lag="$(prom 'max(db_canary_replica_delay_seconds)' || true)"
   if [[ -n "${lag}" ]] && awk -v l="${lag}" 'BEGIN { exit !(l <= 5) }'; then report ok "replica delay ${lag}s is within 5s"; else report fail "replica delay" "(${lag:-no data})"; fi
   # 5. Backups younger than 26 hours.
-  age="$(prom 'max(time() - max by (namespace) (kube_cronjob_status_last_successful_time{cronjob=~".*-backup"}))' || true)"
+  age="$(prom 'max(time() - max by (namespace) (kube_job_status_completion_time{namespace=~"db-.*", job_name=~".*-backup-[0-9]+"}))' || true)"
   if [[ -n "${age}" ]] && awk -v a="${age}" 'BEGIN { exit !(a < 26*3600) }'; then report ok "newest backup is $(awk -v a="${age}" 'BEGIN { printf "%.1f", a/3600 }') hours old"; else report fail "backup age" "(${age:-no data} seconds)"; fi
   # 7. No critical alert is firing.
   crit="$(prom 'sum(ALERTS{alertstate="firing", severity="critical"})' || echo 0)"

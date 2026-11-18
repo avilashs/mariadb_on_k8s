@@ -210,7 +210,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "time() - max by (namespace) (kube_cronjob_status_last_successful_time{cronjob=~\".*-backup\", namespace=~\"$namespace\"})",
+          "expr": "time() - max by (namespace) (kube_job_status_completion_time{job_name=~\".*-backup-[0-9]+\", namespace=~\"$namespace\"})",
           "legendFormat": "{{namespace}}",
           "refId": "A"
         }

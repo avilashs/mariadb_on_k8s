@@ -43,7 +43,7 @@ fleet = dashboard("dbaas-fleet", "Fleet overview", [
     panel(4, "Pods ready of desired", "stat", 6, 8, 6, 4,
           [(f'sum(kube_pod_status_ready{{condition="true", namespace=~"db-.*", pod=~"[a-z0-9-]+-[0-9]+"}})', "ready")]),
     panel(5, "Backup age (worst)", "timeseries", 12, 8, 12, 4,
-          [(f'time() - max by (namespace) (kube_cronjob_status_last_successful_time{{cronjob=~".*-backup", {NSF}}})', "{{namespace}}")], unit="s"),
+          [(f'time() - max by (namespace) (kube_job_status_completion_time{{job_name=~".*-backup-[0-9]+", {NSF}}})', "{{namespace}}")], unit="s"),
     panel(6, "Lost acknowledged writes", "stat", 0, 12, 24, 4,
           [(f'sum by (namespace) (db_canary_lost_acked_writes{{{NSF}}})', "{{namespace}}")]),
 ], [NS_VAR], "One row per instance: availability, lag, alerts, backups and lost writes.")
@@ -84,7 +84,7 @@ maintenance = dashboard("dbaas-maintenance", "Maintenance", [
 
 backup = dashboard("dbaas-backup", "Backup and recovery", [
     panel(1, "Backup age", "timeseries", 0, 0, 12, 8,
-          [(f'time() - max by (namespace, cronjob) (kube_cronjob_status_last_successful_time{{cronjob=~".*-backup", {NSF}}})', "{{namespace}}")], unit="s"),
+          [(f'time() - max by (namespace) (kube_job_status_completion_time{{job_name=~".*-backup-[0-9]+", {NSF}}})', "{{namespace}}")], unit="s"),
     panel(2, "Recoverable point age", "timeseries", 12, 0, 12, 8,
           [(f'time() - max by (namespace) (dbaas_pitr_last_recoverable_time_seconds{{{NSF}}})', "{{namespace}}")], unit="s"),
     panel(3, "Restore drill: last success age", "stat", 0, 8, 24, 4,

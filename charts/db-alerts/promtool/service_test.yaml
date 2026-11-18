@@ -97,7 +97,7 @@ tests:
   - name: a backup older than 26 hours is critical
     interval: 1h
     input_series:
-      - series: 'kube_cronjob_status_last_successful_time{namespace="db-alpha", cronjob="alpha-backup"}'
+      - series: 'kube_job_status_completion_time{namespace="db-alpha", job_name="alpha-backup-20261118143114"}'
         values: '0x30'
     alert_rule_test:
       - eval_time: 27h
@@ -105,18 +105,17 @@ tests:
         exp_alerts:
           - exp_labels:
               namespace: db-alpha
-              cronjob: alpha-backup
               severity: critical
             exp_annotations:
-              dashboard_url: "/d/dbaas-backup/backup-and-recovery"
-              description: "Point in time recovery is not backed by a recent base backup."
+              summary: "The newest backup of db-alpha is older than 26 hours"
+              description: "Point in time recovery is not backed by a recent base backup. The operator creates no CronJob for backups: the Job completion time is the source."
               runbook_url: "docs/runbooks/DbBackupTooOld.md"
-              summary: "The newest backup of alpha-backup is older than 26 hours"
+              dashboard_url: "/d/dbaas-backup/backup-and-recovery"
 
   - name: a fresh backup is not reported
     interval: 1h
     input_series:
-      - series: 'kube_cronjob_status_last_successful_time{namespace="db-alpha", cronjob="alpha-backup"}'
+      - series: 'kube_job_status_completion_time{namespace="db-alpha", job_name="alpha-backup-20261118143114"}'
         values: '0+3600x30'
     alert_rule_test:
       - eval_time: 27h
