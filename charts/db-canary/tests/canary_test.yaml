@@ -35,6 +35,12 @@ tests:
           path: spec.template.spec.containers[0].args
           content: --user=canary
         documentIndex: 0
+  - it: rolls one canary at a time, with no surge pod
+    asserts:
+      - equal:
+          path: spec.strategy.rollingUpdate.maxSurge
+          value: 0
+        documentIndex: 0
   - it: never runs as root and never escalates
     asserts:
       - equal:

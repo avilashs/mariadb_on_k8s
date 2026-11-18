@@ -16,6 +16,13 @@ metadata:
     {{- toYaml $labels | nindent 4 }}
 spec:
   replicas: {{ .Values.replicas }}
+  # One canary at a time, and no surge pod: the required anti-affinity needs a node per
+  # replica, and the system pool has exactly that many in kind.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   # The canary is measured with the instance it measures: its own pods never share a node
   # with each other, so one node drain cannot silence both canaries.
   selector:
