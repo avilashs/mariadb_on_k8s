@@ -83,6 +83,28 @@ check_namespaces() {
     kc get namespace monitoring -o json | jq -e '.metadata.labels["pod-security.kubernetes.io/enforce"] == "privileged"' >/dev/null
 }
 
+# platform_settled: every pod in the platform namespaces is Running with all
+# containers ready, or Succeeded. Returns non-zero while anything still starts.
+platform_settled() {
+  local ns
+  for ns in cert-manager monitoring object-store; do
+    kc get pods -n "${ns}" -o json | jq -e '
+      [.items[] | select(.status.phase != "Succeeded")
+        | select((.status.phase != "Running") or ([.status.containerStatuses[]? | .ready] | all | not))]
+      | length == 0' >/dev/null || return 1
+  done
+}
+
+# wait_for_platform: a fresh install is still starting when the suite begins.
+# Checks run on a settled platform, so startup is not mistaken for a fault.
+wait_for_platform() {
+  local deadline=$((SECONDS + 300))
+  until platform_settled; do
+    ((SECONDS < deadline)) || { echo "platform did not settle within 5 minutes"; return 1; }
+    sleep 5
+  done
+}
+
 check_pods_ready() {
   # Every pod in the platform namespaces is Running with all containers ready, or
   # Succeeded (the bucket Job). Nothing is pending or crash-looping.
@@ -205,17 +227,24 @@ normalise() {
 }
 
 check_second_run_changes_nothing() {
-  local before after
-  before="$(declared_state | normalise | sha256sum)"
+  local before="${ROOT}/.cache/platform-state-before.json"
+  local after="${ROOT}/.cache/platform-state-after.json"
+  declared_state | normalise >"${before}"
   ENV="${ENV}" "${ROOT}/hack/platform-up.sh" >"${ROOT}/.cache/platform-second-run.log" 2>&1 || {
     echo "second platform-up failed; see .cache/platform-second-run.log"
     return 1
   }
-  after="$(declared_state | normalise | sha256sum)"
-  [[ "${before}" == "${after}" ]] || { echo "declared state changed on the second run"; return 1; }
+  declared_state | normalise >"${after}"
+  if ! cmp -s "${before}" "${after}"; then
+    echo "declared state changed on the second run:"
+    diff "${before}" "${after}" | cut -c1-300 | head -40
+    return 1
+  fi
 }
 
 # ---------------------------------------------------------------- run
+
+wait_for_platform || { echo "ERROR: platform not settled; see the pod list above"; kc get pods -A | grep -vE "Running|Completed" | head -20; exit 1; }
 
 NODES="$(node_labels)"
 check "database nodes match the node-class catalogue (labels and taints)" check_node_classes "${NODES}"
