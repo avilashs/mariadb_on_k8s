@@ -32,6 +32,9 @@ cleanup_restores() {
 }
 trap cleanup_restores EXIT
 
+# Marker labels are unique per run: the table keeps rows from earlier runs.
+RUN_ID="$(date +%s)"
+
 # Set per instance before its checks run.
 INST=""
 NS=""
@@ -82,18 +85,18 @@ check_replica_reseeds_after_pod_and_volume_loss() {
 
 check_point_in_time_restore() {
   local target restored="${INST}-pitr" primary
-  marker_write "${INST}" "$(primary_pod "${INST}")" "A-${INST}" >/dev/null
+  marker_write "${INST}" "$(primary_pod "${INST}")" "A-${INST}-${RUN_ID}" >/dev/null
   sleep 2
   target="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   sleep 2
-  marker_write "${INST}" "$(primary_pod "${INST}")" "B-${INST}" >/dev/null
+  marker_write "${INST}" "$(primary_pod "${INST}")" "B-${INST}-${RUN_ID}" >/dev/null
 
   RESTORES+=("${NS#db-}:${restored}")
   KUBE_CONTEXT="${CONTEXT}" "${ROOT}/scripts/restore-instance.sh" "${INST}" "${target}" "${restored}" >/dev/null ||
     { echo "restore of ${INST} to ${target} failed"; return 1; }
   primary="$(primary_pod "${restored}")"
-  marker_present "${restored}" "${primary}" "A-${INST}" || { echo "restored instance lacks A (before ${target})"; return 1; }
-  if marker_present "${restored}" "${primary}" "B-${INST}"; then
+  marker_present "${restored}" "${primary}" "A-${INST}-${RUN_ID}" || { echo "restored instance lacks A (before ${target})"; return 1; }
+  if marker_present "${restored}" "${primary}" "B-${INST}-${RUN_ID}"; then
     echo "restored instance has B (written after ${target})"
     return 1
   fi
