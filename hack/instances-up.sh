@@ -22,7 +22,7 @@ helmfile_sync() {
 }
 
 log "syncing the namespaces of the instances for ENV=${ENV} (directory: ${instances_dir})"
-helmfile_sync --selector role=namespace
+helmfile_sync --selector stage=namespace
 
 # The Users reference a credentials Secret per owner. It must exist before the Users
 # do, and it is created once, never overwritten.
@@ -35,6 +35,28 @@ for file in "${instances_dir}"/*.yaml; do
   done < <(yq -r '.access.databases[]?.owner' "${file}")
 done
 
+# Helm's --wait does not hold a custom resource that has no status yet, so each stage
+# is waited on explicitly, before the next one starts.
+wait_instances() {
+  local kind="$1" file name
+  for file in "${instances_dir}"/*.yaml; do
+    [[ -e "${file}" ]] || continue
+    name="$(yq -r '.name' "${file}")"
+    if [[ "${kind}" == "mariadb" ]]; then
+      kubectl --context "${context}" -n "db-${name}" wait "mariadb/${name}" --for=condition=Ready --timeout=900s >/dev/null
+    elif [[ -n "$(yq -r '.access.databases[]?.name' "${file}")" ]]; then
+      kubectl --context "${context}" -n "db-${name}" wait "${kind}" --all --for=condition=Ready --timeout=600s >/dev/null
+    fi
+  done
+}
+
 log "syncing the instances for ENV=${ENV}"
-helmfile_sync --selector role=instance
+helmfile_sync --selector stage=instance
+wait_instances mariadb
+log "syncing the users for ENV=${ENV}"
+helmfile_sync --selector stage=users
+wait_instances user
+log "syncing the grants for ENV=${ENV}"
+helmfile_sync --selector stage=grants
+wait_instances grant
 log "instances for ENV=${ENV} are in place"

@@ -86,8 +86,11 @@ access_up() {
     out="${CACHE}/e2e/${name}-${stage}.yaml"
     yq -n ".name = \"${name}\" | .stage = \"${stage}\" | .databases = load(\"${values}\").access.databases" >"${out}"
     helm --kube-context "${CONTEXT}" upgrade --install "${name}-${stage}" "${ROOT}/charts/db-access" \
-      --namespace "db-${name}" --values "${out}" --wait --timeout 600s >/dev/null
+      --namespace "db-${name}" --values "${out}" >/dev/null
   done
+  # Helm does not hold custom resources that have no status yet, so wait explicitly.
+  kc -n "db-${name}" wait user --all --for=condition=Ready --timeout=600s >/dev/null
+  kc -n "db-${name}" wait grant --all --for=condition=Ready --timeout=600s >/dev/null
 }
 
 # instance_down <name>: removes an instance. Deletion protection keeps the MariaDB

@@ -10,8 +10,9 @@
 # INSTANCES_DIR overrides the directory (the e2e suites use it to model a removal).
 # The platform (00-platform) must already be installed.
 #
-# Two phases, run by hack/instances-up.sh: the namespaces first (role=namespace), then
-# the credentials Secrets the Users need, then the instances (role=instance).
+# Stages, run in order by hack/instances-up.sh, each one waited on before the next:
+# namespaces, credentials Secrets, instances, users, grants. The stage is the
+# label stage=<name> on each release.
 {{- $env := requiredEnv "ENV" }}
 {{- $platform := readFile (printf "../environments/%s/platform.yaml" $env) | fromYaml }}
 {{- $dir := env "INSTANCES_DIR" | default (printf "../environments/%s/instances" $env) }}
@@ -40,7 +41,7 @@ releases:
     namespace: default
     chart: ../charts/db-namespace
     labels:
-      role: namespace
+      stage: namespace
     values:
       - {{ dict "name" $name "engine" $inst.engine "quota" (index $inst "quota" | default dict) | toJson }}
 
@@ -48,7 +49,7 @@ releases:
     namespace: db-{{ $name }}
     chart: ../charts/mariadb-instance
     labels:
-      role: instance
+      stage: instance
     needs:
       - default/ns-{{ $name }}
     values:
@@ -60,7 +61,7 @@ releases:
     namespace: db-{{ $name }}
     chart: ../charts/db-access
     labels:
-      role: instance
+      stage: users
     needs:
       - db-{{ $name }}/{{ $name }}
     values:
@@ -70,7 +71,7 @@ releases:
     namespace: db-{{ $name }}
     chart: ../charts/db-access
     labels:
-      role: instance
+      stage: grants
     needs:
       - db-{{ $name }}/{{ $name }}-users
     values:
