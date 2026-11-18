@@ -1,0 +1,6 @@
+apiVersion: v2
+name: mariadb-instance
+description: One MariaDB instance. One primary and N replicas with GTID semi-synchronous replication, spread across the nodes and zones of one node class.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

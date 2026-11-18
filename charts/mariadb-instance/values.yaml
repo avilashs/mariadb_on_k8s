@@ -1,0 +1,91 @@
+# Values contract for a MariaDB instance (PLAN.md section 7.1). Engine-specific
+# keys only; the shared keys are the same for every engine.
+
+name: ""
+engine: mariadb
+# Engine version, mapped to a pinned image below. Images are pinned by digest in
+# environments/prod; the tags here are for test environments.
+version: "11.8"
+images:
+  "11.8": docker.io/library/mariadb:11.8.9
+
+# Size preset. Any field under resources, storage or parameters overrides it.
+size: small
+presets:
+  small:
+    cpu: "250m"
+    memory: 512Mi
+    storage: 5Gi
+    maxConnections: 100
+    bufferPoolSize: 128M
+  medium:
+    cpu: "1"
+    memory: 4Gi
+    storage: 50Gi
+    maxConnections: 300
+    bufferPoolSize: 2G
+  large:
+    cpu: "4"
+    memory: 16Gi
+    storage: 200Gi
+    maxConnections: 1000
+    bufferPoolSize: 10G
+
+# Read replicas. The instance runs 1 + replicas pods: one primary, the rest replicas.
+replicas: 2
+
+# The node class this instance runs on. Must exist in catalogue.nodeClasses.
+nodeClass: ""
+
+# Filled by helmfile from environments/<env>/platform.yaml. Never set by hand.
+catalogue:
+  storageTiers: {}
+  storageClasses: {}
+  nodeClasses: {}
+
+resources: {}
+#  cpu: "2"
+#  memory: 8Gi
+
+storage:
+  size: ""
+  className: ""
+
+durability:
+  # Semi-synchronous replication. Mandatory on the local-nvme tier.
+  sync: true
+  ackTimeout: 10s
+
+scheduling:
+  # required: a pod that cannot be spread across zones stays Pending.
+  # preferred: spread when possible.
+  zoneSpread: required
+  terminationGracePeriodSeconds: 300
+
+access:
+  tlsRequired: true
+  # Each entry creates a Database, a User owning it, and a Grant on all its tables.
+  databases: []
+  # - name: orders
+  #   owner: orders_app
+
+backup:
+  # Phase 5 renders the backup schedules. On the local-nvme tier, enabling backups is
+  # mandatory: the chart refuses to render without them.
+  enabled: false
+
+monitoring:
+  enabled: true
+  prometheusRelease: kube-prometheus-stack
+  scrapeInterval: 15s
+
+# Engine settings merged over the baseline in templates/_myconf.tpl.
+parameters: {}
+
+maxStatementTimeSeconds: 300
+
+maxScale:
+  # Off by default: licence decision (PLAN.md D10).
+  enabled: false
+
+deletionProtection: true

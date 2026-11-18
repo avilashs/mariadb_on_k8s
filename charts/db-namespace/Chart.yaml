@@ -1,0 +1,6 @@
+apiVersion: v2
+name: db-namespace
+description: The namespace of one database instance, with its labels and optional quota. Released before the instance.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

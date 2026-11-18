@@ -1,0 +1,44 @@
+suite: namespace
+templates:
+  - templates/namespace.yaml
+values:
+  - ../ci/default.yaml
+tests:
+  - it: names the namespace after the instance and labels it as managed
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: metadata.name
+          value: db-orders
+      - equal:
+          path: metadata.labels["dbaas.local/managed"]
+          value: "true"
+      - equal:
+          path: metadata.labels["dbaas.local/engine"]
+          value: mariadb
+  - it: rejects an instance name that breaks the naming rule
+    set:
+      name: Orders_1
+    asserts:
+      - failedTemplate:
+          errorMessage: "instance name \"Orders_1\" must match ^[a-z][a-z0-9-]{1,28}[a-z0-9]$"
+  - it: rejects an unknown engine
+    set:
+      engine: oracle
+    asserts:
+      - failedTemplate:
+          errorMessage: "engine \"oracle\" must be mariadb or postgres"
+  - it: adds a quota only when one is given
+    values:
+      - ../ci/quota.yaml
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: ResourceQuota
+        documentIndex: 1
+      - equal:
+          path: spec.hard["requests.cpu"]
+          value: "8"
+        documentIndex: 1

@@ -1,0 +1,77 @@
+suite: storage and tier rules
+templates:
+  - templates/mariadb.yaml
+values:
+  - ../ci/premium.yaml
+tests:
+  - it: uses the node class's default storage class
+    asserts:
+      - equal:
+          path: spec.storage.storageClassName
+          value: db-pv2
+  - it: takes a different storage class of the same tier when asked
+    set:
+      storage.className: db-pv2-fast
+    asserts:
+      - equal:
+          path: spec.storage.storageClassName
+          value: db-pv2-fast
+  - it: rejects a storage class of another tier
+    set:
+      storage.className: db-nvme
+    asserts:
+      - failedTemplate:
+          errorMessage: "storage class \"db-nvme\" is on tier \"local-nvme\" but node class \"kind-pv2\" is on tier \"premium-ssd-v2\""
+  - it: rejects a node class that is not in the catalogue
+    set:
+      nodeClass: kind-missing
+    asserts:
+      - failedTemplate:
+          errorMessage: "nodeClass \"kind-missing\" is not in catalogue.nodeClasses"
+  - it: rejects a version that has no image
+    set:
+      version: "10.6"
+    asserts:
+      - failedTemplate:
+          errorMessage: "version \"10.6\" has no image in images"
+  - it: adds the ephemeral-storage annotation only on the local-nvme tier
+    asserts:
+      - notExists:
+          path: spec.storage.volumeClaimTemplate
+  - it: refuses the local-nvme tier with one replica
+    values:
+      - ../ci/nvme.yaml
+    set:
+      replicas: 1
+    asserts:
+      - failedTemplate:
+          errorMessage: "the local-nvme tier needs at least two replicas (PLAN.md 7.5)"
+  - it: refuses the local-nvme tier without backups
+    values:
+      - ../ci/nvme.yaml
+    set:
+      backup.enabled: false
+    asserts:
+      - failedTemplate:
+          errorMessage: "the local-nvme tier needs backups enabled: a pod that moves to a new node restores from backup (PLAN.md 7.5)"
+  - it: refuses the local-nvme tier without semi-synchronous replication
+    values:
+      - ../ci/nvme.yaml
+    set:
+      durability.sync: false
+    asserts:
+      - failedTemplate:
+          errorMessage: "the local-nvme tier needs semi-synchronous replication (PLAN.md 7.5)"
+  - it: renders the local-nvme claim with the driver's ephemeral-storage annotation
+    values:
+      - ../ci/nvme.yaml
+    asserts:
+      - equal:
+          path: 'spec.storage.volumeClaimTemplate.metadata.annotations["localdisk.csi.acstor.io/accept-ephemeral-storage"]'
+          value: "true"
+      - equal:
+          path: spec.storage.volumeClaimTemplate.storageClassName
+          value: db-nvme
+      - equal:
+          path: 'spec.nodeSelector["dbaas.local/node-class"]'
+          value: kind-nvme

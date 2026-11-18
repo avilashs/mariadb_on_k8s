@@ -1,0 +1,8 @@
+# One instance per release. Set by helmfile from the instance values file.
+name: ""
+engine: mariadb
+# Optional namespace quota. Empty means no quota.
+quota: {}
+#  requests.cpu: "8"
+#  requests.memory: 32Gi
+#  persistentvolumeclaims: "10"

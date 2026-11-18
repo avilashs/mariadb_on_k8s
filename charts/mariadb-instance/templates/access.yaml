@@ -1,0 +1,65 @@
+{{- /*
+One Database, one owning User, and one Grant per entry of access.databases.
+Passwords are generated into Secrets by the operator and are never rendered here.
+*/ -}}
+{{- $name := include "dbaas.instanceName" . -}}
+{{- range .Values.access.databases }}
+{{- $db := required "each access.databases entry needs a name" .name }}
+{{- $owner := required (printf "database %s needs an owner" $db) .owner }}
+{{- if not (regexMatch "^[a-z][a-z0-9_]{0,30}$" $db) }}
+{{- fail (printf "database name %q must match ^[a-z][a-z0-9_]{0,30}$" $db) }}
+{{- end }}
+{{- if not (regexMatch "^[a-z][a-z0-9_]{0,30}$" $owner) }}
+{{- fail (printf "owner name %q must match ^[a-z][a-z0-9_]{0,30}$" $owner) }}
+{{- end }}
+---
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: Database
+metadata:
+  name: {{ $name }}-{{ $db | replace "_" "-" }}
+  namespace: db-{{ $name }}
+  labels:
+    app.kubernetes.io/part-of: dbaas
+spec:
+  mariaDbRef:
+    name: {{ $name }}
+  name: {{ $db }}
+  characterSet: utf8mb4
+  collate: utf8mb4_general_ci
+---
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: User
+metadata:
+  name: {{ $name }}-{{ $owner | replace "_" "-" }}
+  namespace: db-{{ $name }}
+  labels:
+    app.kubernetes.io/part-of: dbaas
+spec:
+  mariaDbRef:
+    name: {{ $name }}
+  name: {{ $owner }}
+  # The Secret is created once by scripts/ensure-secret.sh, before the instance is
+  # synced. The chart never holds the password.
+  passwordSecretKeyRef:
+    name: {{ $name }}-{{ $owner | replace "_" "-" }}-credentials
+    key: password
+  maxUserConnections: 100
+---
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: Grant
+metadata:
+  name: {{ $name }}-{{ $owner | replace "_" "-" }}-{{ $db | replace "_" "-" }}
+  namespace: db-{{ $name }}
+  labels:
+    app.kubernetes.io/part-of: dbaas
+spec:
+  mariaDbRef:
+    name: {{ $name }}
+  privileges:
+    - ALL PRIVILEGES
+  database: {{ $db | quote }}
+  table: "*"
+  username: {{ $owner | quote }}
+  host: "%"
+  grantOption: false
+{{- end }}

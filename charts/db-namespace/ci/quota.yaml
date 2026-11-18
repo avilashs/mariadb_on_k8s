@@ -1,0 +1,5 @@
+name: orders
+engine: mariadb
+quota:
+  requests.cpu: "8"
+  requests.memory: 32Gi

@@ -1,0 +1,123 @@
+{{- $name := include "dbaas.instanceName" . -}}
+{{- $nc := include "dbaas.nodeClass" . -}}
+{{- $tier := include "dbaas.tier" . -}}
+{{- $scName := include "dbaas.storageClass" . -}}
+{{- $preset := fromYaml (include "dbaas.preset" .) -}}
+{{- $cpu := .Values.resources.cpu | default $preset.cpu -}}
+{{- $memory := .Values.resources.memory | default $preset.memory -}}
+{{- $storage := .Values.storage.size | default $preset.storage -}}
+{{- $replicaCount := int .Values.replicas -}}
+{{- if lt $replicaCount 1 -}}
+{{- fail "replicas must be at least 1 (one read replica; the instance runs 1 + replicas pods)" -}}
+{{- end }}
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: MariaDB
+metadata:
+  name: {{ $name }}
+  namespace: db-{{ $name }}
+  labels:
+    app.kubernetes.io/part-of: dbaas
+    dbaas.local/engine: mariadb
+    dbaas.local/node-class: {{ $nc | quote }}
+    dbaas.local/storage-tier: {{ $tier | quote }}
+  annotations:
+    {{- if .Values.deletionProtection }}
+    helm.sh/resource-policy: keep
+    {{- end }}
+spec:
+  image: {{ include "dbaas.image" . | quote }}
+  # The operator counts all pods: one primary plus the read replicas.
+  replicas: {{ add 1 $replicaCount }}
+  rootPasswordSecretKeyRef:
+    name: {{ $name }}-root
+    key: password
+    generate: true
+  storage:
+    size: {{ $storage | quote }}
+    storageClassName: {{ $scName | quote }}
+    resizeInUseVolumes: true
+    waitForVolumeResize: true
+    {{- if eq $tier "local-nvme" }}
+    volumeClaimTemplate:
+      metadata:
+        annotations:
+          # The local CSI driver refuses persistent claims without this (PLAN.md 7.5).
+          localdisk.csi.acstor.io/accept-ephemeral-storage: "true"
+      accessModes:
+        - ReadWriteOnce
+      storageClassName: {{ $scName | quote }}
+      resources:
+        requests:
+          storage: {{ $storage | quote }}
+    {{- end }}
+  resources:
+    requests:
+      cpu: {{ $cpu | quote }}
+      memory: {{ $memory | quote }}
+    limits:
+      # Memory limit equals the request: the database is never throttled into swapping.
+      memory: {{ $memory | quote }}
+  replication:
+    enabled: true
+    gtidStrictMode: true
+    semiSyncEnabled: {{ .Values.durability.sync }}
+    semiSyncWaitPoint: AfterSync
+    semiSyncAckTimeout: {{ .Values.durability.ackTimeout | quote }}
+    syncBinlog: 1
+    primary:
+      autoFailover: true
+    replica:
+      gtid: CurrentPos
+      syncTimeout: 10s
+  affinity:
+    # One pod of an instance per node. Scoped to the instance, so other instances may share nodes.
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - topologyKey: kubernetes.io/hostname
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ $name | quote }}
+  {{- if eq .Values.scheduling.zoneSpread "required" }}
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/instance: {{ $name | quote }}
+  {{- else if eq .Values.scheduling.zoneSpread "preferred" }}
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/instance: {{ $name | quote }}
+  {{- else }}
+  {{- fail (printf "scheduling.zoneSpread must be required or preferred, got %q" .Values.scheduling.zoneSpread) }}
+  {{- end }}
+  nodeSelector:
+    dbaas.local/node-class: {{ $nc | quote }}
+  tolerations:
+    - key: workload
+      operator: Equal
+      value: database
+      effect: NoSchedule
+  priorityClassName: dbaas-database
+  terminationGracePeriodSeconds: {{ .Values.scheduling.terminationGracePeriodSeconds }}
+  podDisruptionBudget:
+    maxUnavailable: 1
+  updateStrategy:
+    type: ReplicasFirstPrimaryLast
+    autoUpdateDataPlane: false
+  tls:
+    enabled: true
+    required: {{ .Values.access.tlsRequired }}
+  metrics:
+    enabled: {{ .Values.monitoring.enabled }}
+    serviceMonitor:
+      prometheusRelease: {{ .Values.monitoring.prometheusRelease | quote }}
+      interval: {{ .Values.monitoring.scrapeInterval | quote }}
+      scrapeTimeout: 10s
+  myCnf: |
+{{ include "dbaas.myCnf" . | indent 4 }}

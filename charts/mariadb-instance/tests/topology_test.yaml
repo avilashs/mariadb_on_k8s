@@ -1,0 +1,85 @@
+suite: topology and placement
+templates:
+  - templates/mariadb.yaml
+values:
+  - ../ci/premium.yaml
+tests:
+  - it: runs one primary plus the read replicas
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3
+      - isKind:
+          of: MariaDB
+      - equal:
+          path: metadata.namespace
+          value: db-orders
+  - it: "requires one pod per node: hostname anti-affinity scoped to the instance, required"
+    asserts:
+      - equal:
+          path: 'spec.affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution[0].topologyKey'
+          value: kubernetes.io/hostname
+      - equal:
+          path: 'spec.affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution[0].labelSelector.matchLabels["app.kubernetes.io/instance"]'
+          value: orders
+  - it: spreads across zones and refuses to schedule unevenly when required
+    asserts:
+      - equal:
+          path: 'spec.topologySpreadConstraints[0].topologyKey'
+          value: topology.kubernetes.io/zone
+      - equal:
+          path: 'spec.topologySpreadConstraints[0].whenUnsatisfiable'
+          value: DoNotSchedule
+  - it: pins the instance to its node class, tolerates the database taint, and uses the database priority
+    asserts:
+      - equal:
+          path: 'spec.nodeSelector["dbaas.local/node-class"]'
+          value: kind-pv2
+      - equal:
+          path: 'spec.tolerations[0].key'
+          value: workload
+      - equal:
+          path: spec.priorityClassName
+          value: dbaas-database
+  - it: keeps one disruption at a time and never renders podIndex
+    asserts:
+      - equal:
+          path: spec.podDisruptionBudget.maxUnavailable
+          value: 1
+      - notExists:
+          path: spec.replication.primary.podIndex
+  - it: uses semi-synchronous GTID replication with the AfterSync wait point
+    asserts:
+      - equal:
+          path: spec.replication.semiSyncEnabled
+          value: true
+      - equal:
+          path: spec.replication.semiSyncWaitPoint
+          value: AfterSync
+      - equal:
+          path: spec.replication.gtidStrictMode
+          value: true
+  - it: requires TLS for every connection
+    asserts:
+      - equal:
+          path: spec.tls.required
+          value: true
+  - it: sets the memory limit equal to the request
+    asserts:
+      - equal:
+          path: spec.resources.limits.memory
+          value: 512Mi
+      - equal:
+          path: spec.resources.requests.memory
+          value: 512Mi
+  - it: renders the baseline my.cnf with the preset's connection limit and buffer pool
+    asserts:
+      - matchRegex:
+          path: spec.myCnf
+          pattern: "max_connections=100"
+      - matchRegex:
+          path: spec.myCnf
+          pattern: "innodb_buffer_pool_size=128M"
+      - matchRegex:
+          path: spec.myCnf
+          pattern: "binlog_format=ROW"

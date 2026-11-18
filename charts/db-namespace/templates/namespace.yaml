@@ -1,0 +1,32 @@
+{{- $name := required "name is required" .Values.name }}
+{{- if not (regexMatch "^[a-z][a-z0-9-]{1,28}[a-z0-9]$" $name) }}
+{{- fail (printf "instance name %q must match ^[a-z][a-z0-9-]{1,28}[a-z0-9]$" $name) }}
+{{- end }}
+{{- if not (has .Values.engine (list "mariadb" "postgres")) }}
+{{- fail (printf "engine %q must be mariadb or postgres" .Values.engine) }}
+{{- end }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: db-{{ $name }}
+  labels:
+    app.kubernetes.io/part-of: dbaas
+    dbaas.local/managed: "true"
+    dbaas.local/engine: {{ .Values.engine | quote }}
+    dbaas.local/instance: {{ $name | quote }}
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+{{- with .Values.quota }}
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: db-{{ $name }}-quota
+  namespace: db-{{ $name }}
+  labels:
+    app.kubernetes.io/part-of: dbaas
+spec:
+  hard:
+    {{- toYaml . | nindent 4 }}
+{{- end }}

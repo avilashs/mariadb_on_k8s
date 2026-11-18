@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "mariadb-instance values",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "nodeClass", "catalogue"],
+  "properties": {
+    "name": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,28}[a-z0-9]$"},
+    "engine": {"const": "mariadb"},
+    "version": {"type": "string", "minLength": 1},
+    "images": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}},
+    "size": {"enum": ["small", "medium", "large"]},
+    "presets": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["cpu", "memory", "storage", "maxConnections", "bufferPoolSize"],
+        "properties": {
+          "cpu": {"type": "string"},
+          "memory": {"type": "string"},
+          "storage": {"type": "string"},
+          "maxConnections": {"type": "integer", "minimum": 10},
+          "bufferPoolSize": {"type": "string"}
+        }
+      }
+    },
+    "replicas": {"type": "integer", "minimum": 1, "maximum": 9},
+    "nodeClass": {"type": "string", "minLength": 1},
+    "catalogue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["storageTiers", "storageClasses", "nodeClasses"],
+      "properties": {
+        "storageTiers": {"type": "object"},
+        "storageClasses": {"type": "object"},
+        "nodeClasses": {"type": "object"}
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cpu": {"type": "string"},
+        "memory": {"type": "string"}
+      }
+    },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "size": {"type": "string"},
+        "className": {"type": "string"}
+      }
+    },
+    "durability": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sync": {"type": "boolean"},
+        "ackTimeout": {"type": "string", "pattern": "^[0-9]+(s|m)$"}
+      }
+    },
+    "scheduling": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "zoneSpread": {"enum": ["required", "preferred"]},
+        "terminationGracePeriodSeconds": {"type": "integer", "minimum": 30}
+      }
+    },
+    "access": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tlsRequired": {"type": "boolean"},
+        "databases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "owner"],
+            "properties": {
+              "name": {"type": "string"},
+              "owner": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    "backup": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"enabled": {"type": "boolean"}}
+    },
+    "monitoring": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "prometheusRelease": {"type": "string"},
+        "scrapeInterval": {"type": "string"}
+      }
+    },
+    "parameters": {"type": "object"},
+    "maxStatementTimeSeconds": {"type": "integer", "minimum": 1},
+    "maxScale": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"enabled": {"type": "boolean"}}
+    },
+    "deletionProtection": {"type": "boolean"}
+  }
+}
