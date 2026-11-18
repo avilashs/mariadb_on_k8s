@@ -1,0 +1,218 @@
+# Engine-neutral service alerts (PLAN.md 7.2). Inputs: the canary, kube-state-metrics,
+# drain-guard. A healthy drain must not page: the windows here are longer than a switchover.
+groups:
+  - name: dbaas-service
+    rules:
+      - alert: DbWriteUnavailable
+        expr: |
+          (time() - max by (namespace) (db_canary_last_write_success_timestamp_seconds)) > 60
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No canary write has succeeded in {{ $labels.namespace }} for over a minute"
+          description: "Clients cannot write to the instance in {{ $labels.namespace }}. Last success was {{ $value | humanizeDuration }} ago."
+          runbook_url: "docs/runbooks/DbWriteUnavailable.md"
+          dashboard_url: "/d/dbaas-service/service-level?var-namespace={{ $labels.namespace }}"
+      - alert: DbReadUnavailable
+        expr: |
+          sum by (namespace) (increase(db_canary_read_total{result="ok"}[2m])) == 0
+          and on (namespace) sum by (namespace) (db_canary_read_total) > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No canary read through the secondary Service in {{ $labels.namespace }} for 2 minutes"
+          description: "Readers cannot read from a replica in {{ $labels.namespace }}."
+          runbook_url: "docs/runbooks/DbReadUnavailable.md"
+          dashboard_url: "/d/dbaas-service/service-level?var-namespace={{ $labels.namespace }}"
+      - alert: DbPodAway
+        expr: |
+          max by (namespace, pod) (kube_pod_status_ready{namespace=~"db-.*", condition="true", pod=~"[a-z0-9-]+-[0-9]+"}) == 0
+        for: 20m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Database pod {{ $labels.pod }} has not been Ready for 20 minutes"
+          description: "Longer than a drain cycle: redundancy has been lost in {{ $labels.namespace }}."
+          runbook_url: "docs/runbooks/DbPodAway.md"
+          dashboard_url: "/d/dbaas-maintenance/maintenance"
+      - alert: DbPodPending
+        expr: |
+          sum by (namespace, pod) (kube_pod_status_phase{namespace=~"db-.*", phase="Pending"}) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Database pod {{ $labels.pod }} cannot be scheduled for 10 minutes"
+          description: "Capacity, zone or anti-affinity: check the node class and the events of the pod."
+          runbook_url: "docs/runbooks/DbPodPending.md"
+          dashboard_url: "/d/dbaas-maintenance/maintenance"
+      - alert: DbPodsShareNode
+        expr: |
+          count by (namespace, node) (kube_pod_info{namespace=~"db-.*", pod=~"[a-z0-9-]+-[0-9]+"}) > 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Two pods of one database instance run on the same node"
+          description: "Required anti-affinity was violated or disabled. This must never fire."
+          runbook_url: "docs/runbooks/DbPodsShareNode.md"
+          dashboard_url: "/d/dbaas-maintenance/maintenance"
+      - alert: DbPodRestartLoop
+        expr: |
+          sum by (namespace, pod) (increase(kube_pod_container_status_restarts_total{namespace=~"db-.*"}[1h])) > 3
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.pod }} restarted more than 3 times in an hour"
+          description: "A crash loop is in progress; check the previous container log."
+          runbook_url: "docs/runbooks/DbPodRestartLoop.md"
+          dashboard_url: "/d/dbaas-instance/mariadb-instance"
+      - alert: DbVolumeFillingUp
+        expr: |
+          (kubelet_volume_stats_available_bytes{namespace=~"db-.*"} / kubelet_volume_stats_capacity_bytes{namespace=~"db-.*"}) < 0.2
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Volume {{ $labels.persistentvolumeclaim }} has under 20% free"
+          description: "Predicted full soon. Expand the volume (docs/operations.md, resize)."
+          runbook_url: "docs/runbooks/DbVolumeFillingUp.md"
+          dashboard_url: "/d/dbaas-instance/mariadb-instance"
+      - alert: DbVolumeNearlyFull
+        expr: |
+          (kubelet_volume_stats_available_bytes{namespace=~"db-.*"} / kubelet_volume_stats_capacity_bytes{namespace=~"db-.*"}) < 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Volume {{ $labels.persistentvolumeclaim }} has under 10% free"
+          description: "Writes will fail when it is full. Act now."
+          runbook_url: "docs/runbooks/DbVolumeFillingUp.md"
+          dashboard_url: "/d/dbaas-instance/mariadb-instance"
+      - alert: DbBackupTooOld
+        expr: |
+          (time() - max by (namespace, cronjob) (kube_cronjob_status_last_successful_time{namespace=~"db-.*", cronjob=~".*-backup"})) > 26 * 3600
+        labels:
+          severity: critical
+        annotations:
+          summary: "The newest backup of {{ $labels.cronjob }} is older than 26 hours"
+          description: "Point in time recovery is not backed by a recent base backup."
+          runbook_url: "docs/runbooks/DbBackupTooOld.md"
+          dashboard_url: "/d/dbaas-backup/backup-and-recovery"
+      - alert: DbRestoreDrillStale
+        expr: |
+          (time() - max(kube_cronjob_status_last_successful_time{namespace="dbaas-system", cronjob="db-restore-drill"})) > 8 * 86400
+        labels:
+          severity: warning
+        annotations:
+          summary: "No successful restore drill in 8 days"
+          description: "Restores are not proven. Run make restore-drill and look at the CronJob."
+          runbook_url: "docs/runbooks/DbRestoreDrillStale.md"
+          dashboard_url: "/d/dbaas-backup/backup-and-recovery"
+      - alert: DbDrainBlocked
+        expr: |
+          drain_guard_blocked_instances > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A drain has been blocked for 15 minutes: {{ $value }} instance(s) cannot move their primary"
+          description: "No replica can take the primary role. The drain waits; it will not fail silently."
+          runbook_url: "docs/runbooks/DbDrainBlocked.md"
+          dashboard_url: "/d/dbaas-maintenance/maintenance"
+      - alert: DrainGuardDown
+        expr: |
+          max(kube_deployment_status_replicas_available{namespace="dbaas-system", deployment="drain-guard"}) < 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "drain-guard has no Ready replica for 5 minutes"
+          description: "MariaDB evictions are refused while it is down. Drains stop."
+          runbook_url: "docs/runbooks/DrainGuardDown.md"
+          dashboard_url: "/d/dbaas-maintenance/maintenance"
+      - alert: DrainGuardDegraded
+        expr: |
+          max(kube_deployment_status_replicas_available{namespace="dbaas-system", deployment="drain-guard"}) == 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "drain-guard has one Ready replica"
+          description: "One more failure stops every MariaDB drain."
+          runbook_url: "docs/runbooks/DrainGuardDown.md"
+          dashboard_url: "/d/dbaas-maintenance/maintenance"
+      - alert: DbOperatorDown
+        expr: |
+          max(kube_deployment_status_replicas_available{namespace="mariadb-system", deployment="mariadb-operator"}) < 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "The MariaDB operator has no Ready replica for 5 minutes"
+          description: "No failover is possible while the operator is down."
+          runbook_url: "docs/runbooks/DbOperatorDown.md"
+          dashboard_url: "/d/dbaas-fleet/fleet-overview"
+      - alert: DbErrorBudgetBurn
+        expr: |
+          (
+            sum by (namespace) (rate(db_canary_write_total{result="error"}[1h]))
+              / clamp_min(sum by (namespace) (rate(db_canary_write_total[1h])), 1e-9)
+          ) > 14.4 * 0.0005
+          and on (namespace)
+          (
+            sum by (namespace) (rate(db_canary_write_total{result="error"}[5m]))
+              / clamp_min(sum by (namespace) (rate(db_canary_write_total[5m])), 1e-9)
+          ) > 14.4 * 0.0005
+        labels:
+          severity: critical
+        annotations:
+          summary: "Write error budget of {{ $labels.namespace }} burns 14 times too fast (fast window)"
+          description: "At this rate the 99.95% objective is gone in two days. Both windows burn."
+          runbook_url: "docs/runbooks/DbErrorBudgetBurn.md"
+          dashboard_url: "/d/dbaas-service/service-level?var-namespace={{ $labels.namespace }}"
+      - alert: DbErrorBudgetBurnSlow
+        expr: |
+          (
+            sum by (namespace) (rate(db_canary_write_total{result="error"}[6h]))
+              / clamp_min(sum by (namespace) (rate(db_canary_write_total[6h])), 1e-9)
+          ) > 6 * 0.0005
+          and on (namespace)
+          (
+            sum by (namespace) (rate(db_canary_write_total{result="error"}[30m]))
+              / clamp_min(sum by (namespace) (rate(db_canary_write_total[30m])), 1e-9)
+          ) > 6 * 0.0005
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Write error budget of {{ $labels.namespace }} burns 6 times too fast (slow window)"
+          description: "Not an emergency yet. Find the cause before the budget is gone."
+          runbook_url: "docs/runbooks/DbErrorBudgetBurn.md"
+          dashboard_url: "/d/dbaas-service/service-level?var-namespace={{ $labels.namespace }}"
+      - alert: DbNoHeadroom
+        expr: |
+          count by (zone, node_class) (
+            kube_node_labels{label_dbaas_local_node_class!=""}
+            * on (node) group_left(zone) label_replace(kube_node_labels, "zone", "$1", "node", "(.*)")
+          ) < 3
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Zone {{ $labels.zone }} has fewer than 3 database nodes of class {{ $labels.node_class }}"
+          description: "The capacity rule of a rotation needs one spare node per zone (docs/node-rotation.md)."
+          runbook_url: "docs/runbooks/DbNoHeadroom.md"
+          dashboard_url: "/d/dbaas-maintenance/maintenance"
+      - alert: DbCertificateExpiring
+        expr: |
+          (certmanager_certificate_expiration_timestamp_seconds{namespace=~"db-.*|mariadb-system|dbaas-system|cnpg-system"} - time()) < 14 * 86400
+        labels:
+          severity: warning
+        annotations:
+          summary: "Certificate {{ $labels.name }} expires within 14 days"
+          description: "cert-manager should have renewed it; check the Certificate and its Issuer."
+          runbook_url: "docs/runbooks/DbCertificateExpiring.md"
+          dashboard_url: "/d/dbaas-fleet/fleet-overview"

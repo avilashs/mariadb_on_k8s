@@ -1,0 +1,54 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: db-restore-drill
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: dbaas
+    app.kubernetes.io/name: db-restore-drill
+---
+# The drill creates and deletes throwaway instances in db-* namespaces, reads their
+# root password and pods, and runs one SQL statement in the throwaway. Nothing else.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: db-restore-drill
+  labels:
+    app.kubernetes.io/part-of: dbaas
+rules:
+  - apiGroups: ["k8s.mariadb.com"]
+    resources: ["mariadbs", "pointintimerecoveries"]
+    verbs: ["get", "list"]
+  - apiGroups: ["k8s.mariadb.com"]
+    resources: ["mariadbs"]
+    verbs: ["create", "delete"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["list", "delete"]
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: db-restore-drill
+  labels:
+    app.kubernetes.io/part-of: dbaas
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: db-restore-drill
+subjects:
+  - kind: ServiceAccount
+    name: db-restore-drill
+    namespace: {{ .Release.Namespace }}

@@ -1,0 +1,33 @@
+suite: weekly restore drill
+values:
+  - ../ci/default.yaml
+tests:
+  - it: runs the drill for every instance once a week, never twice at once
+    template: templates/cronjob.yaml
+    asserts:
+      - equal:
+          path: spec.schedule
+          value: "37 3 * * 0"
+      - equal:
+          path: spec.concurrencyPolicy
+          value: Forbid
+  - it: runs the drill script in --all mode under the restricted pod security settings
+    template: templates/cronjob.yaml
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].command[2]
+          value: --all
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+  - it: grants the drill only the rules it needs
+    template: templates/rbac.yaml
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: ClusterRole
+      - notContains:
+          path: rules
+          content:
+            apiGroups: ["*"]
+            resources: ["*"]

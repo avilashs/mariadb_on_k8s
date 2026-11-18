@@ -69,6 +69,20 @@ spec:
     replica:
       gtid: CurrentPos
       syncTimeout: 10s
+      {{- if .Values.backup.enabled }}
+      # A new or emptied replica restores the newest backup, then catches up through GTID.
+      bootstrapFrom:
+        physicalBackupTemplateRef:
+          name: {{ $name }}-backup-template
+      # A replica with an error it cannot fix itself is rebuilt from the backup.
+      recovery:
+        enabled: true
+        errorDurationThreshold: 5m
+      {{- end }}
+  {{- if .Values.backup.enabled }}
+  pointInTimeRecoveryRef:
+    name: {{ $name }}
+  {{- end }}
   affinity:
     # One pod of an instance per node. Scoped to the instance, so other instances may share nodes.
     podAntiAffinity:

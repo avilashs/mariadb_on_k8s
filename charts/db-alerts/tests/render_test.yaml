@@ -1,0 +1,23 @@
+suite: alert rules as PrometheusRule objects
+templates:
+  - templates/prometheusrules.yaml
+values:
+  - ../ci/default.yaml
+tests:
+  - it: renders one PrometheusRule per rules file, in the monitoring namespace
+    asserts:
+      - hasDocuments:
+          count: 3
+      - isKind:
+          of: PrometheusRule
+        documentIndex: 0
+      - equal:
+          path: metadata.namespace
+          value: monitoring
+        documentIndex: 0
+  - it: selects the rules with the Prometheus of kube-prometheus-stack
+    asserts:
+      - equal:
+          path: metadata.labels.release
+          value: kube-prometheus-stack
+        documentIndex: 1

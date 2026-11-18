@@ -56,6 +56,7 @@ platform:
   testObjectStore:                # kind only
     image: docker.io/chrislusf/seaweedfs:3.99
     awsCliImage: docker.io/amazon/aws-cli:2.40.4
+  restoreDrillImage: docker.io/alpine/k8s:1.36.4   # kubectl, bash and jq for the weekly restore drill
 
 # CRDs that `make schemas` turns into strict validation schemas. Each source
 # follows the version found at `versionFrom`, so a bump above moves the schemas

@@ -1,0 +1,132 @@
+{{- $name := include "dbaas.instanceName" . -}}
+{{- $nc := include "dbaas.nodeClass" . -}}
+{{- $tier := include "dbaas.tier" . -}}
+{{- $scName := include "dbaas.storageClass" . -}}
+{{- $preset := fromYaml (include "dbaas.preset" .) -}}
+{{- $replicas := int .Values.replicas -}}
+{{- if lt $replicas 1 -}}{{- fail "replicas must be at least 1" -}}{{- end -}}
+{{- $cpu := .Values.resources.cpu | default $preset.cpu -}}
+{{- $memory := .Values.resources.memory | default $preset.memory -}}
+{{- $storage := .Values.storage.size | default $preset.storage -}}
+{{- $labels := dict "app.kubernetes.io/part-of" "dbaas" "dbaas.local/engine" "postgres" "dbaas.local/node-class" $nc "dbaas.local/storage-tier" $tier -}}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ $name }}
+  namespace: db-{{ $name }}
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+  annotations:
+    {{- if .Values.deletionProtection }}
+    helm.sh/resource-policy: keep
+    {{- end }}
+spec:
+  description: "PostgreSQL instance {{ $name }} (dbaas postgres-instance)"
+  imageName: {{ include "dbaas.image" . | quote }}
+  # The operator counts all pods: one primary plus the standbys (the same meaning as MariaDB).
+  instances: {{ add 1 $replicas }}
+  # Same contract as MariaDB: one pod per node, required (PLAN.md phase 10, mapping table).
+  affinity:
+    enablePodAntiAffinity: true
+    topologyKey: kubernetes.io/hostname
+    podAntiAffinityType: required
+    nodeSelector:
+      dbaas.local/node-class: {{ $nc | quote }}
+    tolerations:
+      - key: workload
+        operator: Equal
+        value: database
+        effect: NoSchedule
+  {{- if eq .Values.scheduling.zoneSpread "required" }}
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          cnpg.io/cluster: {{ $name | quote }}
+  {{- end }}
+  priorityClassName: dbaas-database
+  # The operator's own budget (enablePDB) is the single budget. No second one is added here.
+  enablePDB: true
+  primaryUpdateStrategy: unsupervised
+  primaryUpdateMethod: switchover
+  # Local NVMe: the driver's claim annotation on every volume claim (PLAN.md 7.5). Confirm it
+  # reaches the claims on AKS (docs/rollout-checklist.md).
+  {{- if eq $tier "local-nvme" }}
+  inheritedMetadata:
+    annotations:
+      localdisk.csi.acstor.io/accept-ephemeral-storage: "true"
+  {{- end }}
+  # The time CloudNativePG gives a pod to stop (its name for the grace period).
+  stopDelay: {{ .Values.scheduling.terminationGracePeriodSeconds }}
+  postgresql:
+    {{- if .Values.durability.sync }}
+    synchronous:
+      method: any
+      number: 1
+      dataDurability: preferred
+    {{- end }}
+    {{- if .Values.parameters }}
+    parameters:
+      {{- range $k, $v := .Values.parameters }}
+      {{ $k }}: {{ $v | quote }}
+      {{- end }}
+    {{- else }}
+    parameters: {}
+    {{- end }}
+  resources:
+    requests:
+      cpu: {{ $cpu | quote }}
+      memory: {{ $memory | quote }}
+    limits:
+      memory: {{ $memory | quote }}
+  storage:
+    size: {{ $storage | quote }}
+    storageClass: {{ $scName | quote }}
+    resizeInUseVolumes: true
+  walStorage:
+    size: {{ $storage | quote }}
+    storageClass: {{ $scName | quote }}
+  {{- if .Values.backup.enabled }}
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: {{ $name }}
+  {{- end }}
+  monitoring:
+    enablePodMonitor: false
+  managed:
+    services:
+      # The same names as MariaDB: <name>-primary (read-write) and <name>-secondary (read-only).
+      additional:
+        - selectorType: rw
+          serviceTemplate:
+            metadata:
+              name: {{ $name }}-primary
+            spec:
+              type: ClusterIP
+        - selectorType: ro
+          serviceTemplate:
+            metadata:
+              name: {{ $name }}-secondary
+            spec:
+              type: ClusterIP
+    roles:
+      - name: canary
+        ensure: present
+        login: true
+        passwordSecret:
+          name: {{ $name }}-canary-credentials
+      {{- range .Values.access.databases }}
+      - name: {{ .owner }}
+        ensure: present
+        login: true
+        passwordSecret:
+          name: {{ $name }}-{{ .owner | replace "_" "-" }}-credentials
+      {{- end }}
+  bootstrap:
+    initdb:
+      database: dbaas_canary
+      owner: canary

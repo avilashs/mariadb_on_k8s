@@ -1,0 +1,54 @@
+# A private CA for the webhook's serving certificate. cert-manager injects the CA into the
+# ValidatingWebhookConfiguration, so no part of the chain is written by hand.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: drain-guard-selfsigned
+  namespace: {{ .Release.Namespace }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: drain-guard-ca
+  namespace: {{ .Release.Namespace }}
+spec:
+  isCA: true
+  commonName: drain-guard-ca
+  secretName: drain-guard-ca
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: drain-guard-selfsigned
+    kind: Issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: drain-guard-ca
+  namespace: {{ .Release.Namespace }}
+spec:
+  ca:
+    secretName: drain-guard-ca
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: drain-guard-tls
+  namespace: {{ .Release.Namespace }}
+spec:
+  secretName: drain-guard-tls
+  duration: 2160h
+  renewBefore: 720h
+  dnsNames:
+    - drain-guard
+    - drain-guard.{{ .Release.Namespace }}
+    - drain-guard.{{ .Release.Namespace }}.svc
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: drain-guard-ca
+    kind: Issuer

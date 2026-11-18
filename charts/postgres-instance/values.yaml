@@ -1,0 +1,37 @@
+# Required: name, nodeClass, catalogue (from the platform file, through the helmfile).
+name: ""
+engine: postgres
+version: "18"
+images:
+  "18": ghcr.io/cloudnative-pg/postgresql:18.0
+size: small
+replicas: 2                 # read replicas; the instance runs 1 + replicas pods
+nodeClass: ""
+storage:
+  size: ""                  # empty: the size preset
+  className: ""             # empty: the node class's storage class
+resources:
+  cpu: ""
+  memory: ""
+durability:
+  sync: true                # synchronous replication, one standby must confirm (PLAN.md 7.4 analogue)
+scheduling:
+  zoneSpread: required
+  terminationGracePeriodSeconds: 300
+backup:
+  enabled: false
+  schedule: "17 2 * * *"
+  retention: 720h
+  binlogArchiveTimeout: 1m  # WAL archive timeout, named as in mariadb-instance
+access:
+  tlsRequired: true
+  databases: []             # [{name, owner}]: a database and its owning role
+monitoring:
+  enabled: true
+  scrapeInterval: 15s
+parameters: {}
+presets:
+  small: {cpu: 250m, memory: 512Mi, storage: 5Gi, maxConnections: 100, sharedBuffers: 128MB}
+  medium: {cpu: "1", memory: 2Gi, storage: 20Gi, maxConnections: 300, sharedBuffers: 512MB}
+  large: {cpu: "2", memory: 8Gi, storage: 100Gi, maxConnections: 600, sharedBuffers: 2GB}
+deletionProtection: true

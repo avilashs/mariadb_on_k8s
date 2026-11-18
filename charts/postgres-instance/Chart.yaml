@@ -1,0 +1,6 @@
+apiVersion: v2
+name: postgres-instance
+description: One PostgreSQL instance with the same contract as mariadb-instance (PLAN.md phase 10). CloudNativePG underneath.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

@@ -1,0 +1,35 @@
+suite: network isolation of an instance
+templates:
+  - templates/networkpolicy.yaml
+values:
+  - ../ci/premium.yaml
+tests:
+  - it: admits only the instance, the operator and monitoring
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchLabels["app.kubernetes.io/instance"]
+          value: orders
+      - equal:
+          path: spec.ingress[0].from[1].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
+          value: mariadb-system
+      - equal:
+          path: spec.ingress[0].from[2].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
+          value: monitoring
+  - it: admits a listed namespace and nothing else
+    set:
+      access.allowedNamespaces:
+        - billing
+    asserts:
+      - equal:
+          path: spec.ingress[0].from[3].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
+          value: billing
+      - hasDocuments:
+          count: 1
+  - it: restricts ingress only, leaving egress to backups and the object store
+    asserts:
+      - equal:
+          path: spec.policyTypes
+          value:
+            - Ingress

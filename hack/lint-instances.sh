@@ -35,19 +35,23 @@ for file in "${files[@]}"; do
   yq -n "load(\"${file}\") * {\"catalogue\": {
     \"storageTiers\": load(\"${platform}\").storageTiers,
     \"storageClasses\": load(\"${platform}\").storageClasses,
-    \"nodeClasses\": load(\"${platform}\").nodeClasses}}" >"${merged}"
+    \"nodeClasses\": load(\"${platform}\").nodeClasses,
+    \"backupStore\": load(\"${platform}\").backupStore}}" >"${merged}"
+  # PostgreSQL instances render through their own chart (PLAN.md phase 10).
+  chart="${ROOT}/charts/mariadb-instance"
+  [[ "$(yq -r '.engine' "${file}")" == "postgres" ]] && chart="${ROOT}/charts/postgres-instance"
   name="$(yq -r '.name' "${file}")"
   access="${rendered}.access.yaml"
   : >"${access}"
   access_ok=1
-  if [[ "$(yq -r '.access.databases | length' "${file}")" != "0" ]]; then
+  if [[ "$(yq -r '.access.databases | length' "${file}")" != "0" && "$(yq -r '.engine' "${file}")" == "mariadb" ]]; then
     for stage in users grants; do
       yq -n ".name = \"${name}\" | .stage = \"${stage}\" | .databases = load(\"${file}\").access.databases" >"${merged}.${stage}"
       helm template "${name}-${stage}" "${ROOT}/charts/db-access" --namespace "db-${name}" \
         --values "${merged}.${stage}" >>"${access}" 2>>"${rendered}.err" || access_ok=0
     done
   fi
-  if ((access_ok == 1)) && helm template "${name}" "${ROOT}/charts/mariadb-instance" --namespace "db-${name}" \
+  if ((access_ok == 1)) && helm template "${name}" "${chart}" --namespace "db-${name}" \
       --values "${merged}" >"${rendered}" 2>"${rendered}.err" &&
     cat "${access}" >>"${rendered}" &&
     "${ROOT}/hack/kubeconform.sh" -summary "${rendered}" >/dev/null 2>&1; then

@@ -28,11 +28,13 @@ endif
 
 # Files that exist only from later phases on. Targets work on whatever is there.
 SHELL_FILES = $(shell git -C $(ROOT) ls-files --cached --others --exclude-standard -- '*.sh')
-RULE_FILES = $(wildcard $(ROOT)/alerts/rules/*.yaml)
-RULE_TESTS = $(wildcard $(ROOT)/alerts/tests/*.yaml)
+RULE_FILES = $(wildcard $(ROOT)/charts/db-alerts/rules/*.yaml)
+RULE_TESTS = $(wildcard $(ROOT)/charts/db-alerts/promtool/*.yaml)
 CHART_TESTS = $(patsubst %/tests,%,$(wildcard $(ROOT)/charts/*/tests))
 GO_FILES = $(shell find $(ROOT)/tools -name '*.go' 2>/dev/null | head -n1)
-E2E_SUITES = $(patsubst $(ROOT)/tests/e2e/%.sh,%,$(filter-out %/lib.sh,$(wildcard $(ROOT)/tests/e2e/*.sh)))
+# Suites of about an hour each run nightly (ci.yaml, e2e-nightly), not in every pull request.
+E2E_LONG = drain rotation
+E2E_SUITES = $(filter-out $(E2E_LONG),$(patsubst $(ROOT)/tests/e2e/%.sh,%,$(filter-out %/lib.sh,$(wildcard $(ROOT)/tests/e2e/*.sh))))
 
 ##@ General
 
@@ -62,7 +64,7 @@ schemas: ## Generate strict JSON Schemas from the pinned operator CRDs
 verify: lint unit ## Everything that needs no cluster: lint + unit
 
 .PHONY: lint
-lint: lint-yaml lint-shell lint-charts lint-platform lint-instances lint-rules lint-go ## All static checks
+lint: lint-yaml lint-shell lint-charts lint-platform lint-instances lint-budgets lint-rules lint-go ## All static checks
 
 .PHONY: lint-yaml
 lint-yaml:
@@ -88,6 +90,10 @@ lint-platform: schemas ## Render the platform for ENV and validate every object 
 lint-instances: schemas ## Validate every instance file of every environment
 	@echo "==> validate instance files"
 	@$(ROOT)/hack/lint-instances.sh
+
+.PHONY: lint-budgets
+lint-budgets: ## No chart renders a second PodDisruptionBudget over database pods (PLAN.md D6)
+	@$(ROOT)/hack/lint-budgets.sh
 
 .PHONY: lint-rules
 lint-rules:
@@ -164,9 +170,22 @@ define not_yet
 @echo "ERROR: 'make $@' arrives with phase $(1) of PLAN.md and is not implemented yet." >&2; exit 1
 endef
 
+# The images are compiled on the host and copied into a scratch image, so the build
+# pulls nothing from a registry. kind loads them from the local Docker daemon.
+IMAGE_TAG ?= dev
+KIND_CLUSTER ?= dbaas
+IMAGES = db-canary drain-guard
+
 .PHONY: images
-images: ## Build the db-canary and drain-guard images (phase 6)
-	$(call not_yet,6)
+images: ## Build the db-canary and drain-guard images and load them into the kind cluster
+	@for img in $(IMAGES); do \
+	  echo "==> image dbaas/$$img:$(IMAGE_TAG)"; \
+	  mkdir -p $(CACHE)/images/$$img && \
+	  (cd $(ROOT)/tools && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s -w" -o $(CACHE)/images/$$img/$$img ./$$img) && \
+	  cp $(ROOT)/tools/$$img/Dockerfile $(CACHE)/images/$$img/Dockerfile && \
+	  docker build --quiet -t dbaas/$$img:$(IMAGE_TAG) $(CACHE)/images/$$img >/dev/null && \
+	  if kind get clusters 2>/dev/null | grep -qx $(KIND_CLUSTER); then kind load docker-image dbaas/$$img:$(IMAGE_TAG) --name $(KIND_CLUSTER); fi; \
+	done
 
 .PHONY: instances-up
 instances-up: schemas ## Sync every instance file of ENV (idempotent; deleting a file does not delete the instance)
@@ -180,10 +199,14 @@ instance-new: ## Scaffold and validate an instance: NAME=<name> ENGINE=mariadb S
 instance-remove: ## Remove an instance whose file is already deleted: NAME=<name>
 	@ENV=$(ENV) $(ROOT)/scripts/instance-remove.sh "$(NAME)"
 
+.PHONY: restore-drill
+restore-drill: ## Restore an instance to TIME (default: newest recoverable) into a throwaway, check it, delete it: NAME=<name> [TIME=<RFC 3339 UTC>]
+	@KUBE_CONTEXT=$$(yq -r '.kubeContext' $(ROOT)/environments/$(ENV)/platform.yaml) $(ROOT)/scripts/restore-drill.sh "$(NAME)" "$(TIME)"
+
 ##@ End-to-end suites
 
 .PHONY: e2e
-e2e: $(addprefix e2e-,$(E2E_SUITES)) ## Run every e2e suite in tests/e2e/ for ENV and ENGINE
+e2e: $(addprefix e2e-,$(E2E_SUITES)) ## Run every quick e2e suite for ENV and ENGINE (the long ones: make e2e-drain, e2e-rotation)
 
 e2e-%: ## Run one suite, e.g. make e2e-platform (suites live in tests/e2e/)
 	@test -f $(ROOT)/tests/e2e/$*.sh || { echo "ERROR: no e2e suite '$*' (tests/e2e/$*.sh)" >&2; exit 1; }

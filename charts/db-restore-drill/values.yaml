@@ -1,0 +1,12 @@
+# The drill scripts are not values: helmfile passes scripts/restore-drill.sh and
+# scripts/restore-instance.sh in with --set-file, so there is one copy of each.
+scripts:
+  restoreDrill: ""
+  restoreInstance: ""
+image: docker.io/alpine/k8s:1.36.4
+# Weekly, Sunday 03:37 UTC. Its last successful run is the DbRestoreDrillStale alert's input.
+schedule: "37 3 * * 0"
+activeDeadlineSeconds: 7200
+nodeSelector:
+  pool: system
+priorityClassName: dbaas-platform

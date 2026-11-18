@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: db-restore-drill-scripts
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: dbaas
+    app.kubernetes.io/name: db-restore-drill
+data:
+  restore-drill.sh: {{ .Values.scripts.restoreDrill | quote }}
+  restore-instance.sh: {{ .Values.scripts.restoreInstance | quote }}

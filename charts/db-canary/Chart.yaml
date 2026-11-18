@@ -1,0 +1,6 @@
+apiVersion: v2
+name: db-canary
+description: The client's-eye measurement of one database instance (PLAN.md phase 6). Same chart for both engines.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

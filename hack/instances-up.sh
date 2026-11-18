@@ -29,10 +29,29 @@ helmfile_sync --selector stage=namespace
 for file in "${instances_dir}"/*.yaml; do
   [[ -e "${file}" ]] || continue
   name="$(yq -r '.name' "${file}")"
+  engine="$(yq -r '.engine' "${file}")"
+  # PostgreSQL roles are basic-auth Secrets (username and password), read by CloudNativePG.
+  role_secret() {
+    if [[ "${engine}" == "postgres" ]]; then
+      "${ROOT}/scripts/ensure-pg-role-secret.sh" "${context}" "db-${name}" "$1" "$2" >/dev/null
+    else
+      "${ROOT}/scripts/ensure-secret.sh" "${context}" "db-${name}" "$1" password >/dev/null
+    fi
+  }
   while IFS= read -r owner; do
-    secret="${name}-$(tr '_' '-' <<<"${owner}")-credentials"
-    "${ROOT}/scripts/ensure-secret.sh" "${context}" "db-${name}" "${secret}" password >/dev/null
+    role_secret "${name}-$(tr '_' '-' <<<"${owner}")-credentials" "${owner}"
   done < <(yq -r '.access.databases[]?.owner' "${file}")
+  # The canary's role is on every instance (PLAN.md phase 6), so its Secret always exists.
+  role_secret "${name}-canary-credentials" canary
+done
+
+# Instances with backups need the object store credentials in their namespace.
+for file in "${instances_dir}"/*.yaml; do
+  [[ -e "${file}" ]] || continue
+  if [[ "$(yq -r '.backup.enabled // false' "${file}")" == "true" ]]; then
+    "${ROOT}/scripts/ensure-backup-credentials.sh" "${context}" "db-$(yq -r '.name' "${file}")" \
+      "${ROOT}/environments/${ENV}/platform.yaml"
+  fi
 done
 
 # Helm's --wait does not hold a custom resource that has no status yet, so each stage
@@ -42,7 +61,11 @@ wait_instances() {
   for file in "${instances_dir}"/*.yaml; do
     [[ -e "${file}" ]] || continue
     name="$(yq -r '.name' "${file}")"
-    if [[ "${kind}" == "mariadb" ]]; then
+    if [[ "$(yq -r '.engine' "${file}")" == "postgres" ]]; then
+      # PostgreSQL has one Cluster; its roles and databases are reconciled by the operator.
+      [[ "${kind}" == "mariadb" ]] || continue
+      kubectl --context "${context}" -n "db-${name}" wait "cluster/${name}" --for=condition=Ready --timeout=900s >/dev/null
+    elif [[ "${kind}" == "mariadb" ]]; then
       kubectl --context "${context}" -n "db-${name}" wait "mariadb/${name}" --for=condition=Ready --timeout=900s >/dev/null
     elif [[ -n "$(yq -r '.access.databases[]?.name' "${file}")" ]]; then
       kubectl --context "${context}" -n "db-${name}" wait "${kind}" --all --for=condition=Ready --timeout=600s >/dev/null
@@ -59,4 +82,6 @@ wait_instances user
 log "syncing the grants for ENV=${ENV}"
 helmfile_sync --selector stage=grants
 wait_instances grant
+log "syncing the canaries for ENV=${ENV}"
+helmfile_sync --selector stage=canary
 log "instances for ENV=${ENV} are in place"

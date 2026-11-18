@@ -32,7 +32,7 @@ wait_ready() {
 wait_ready alpha
 wait_ready beta
 
-pods_of() { kc -n "db-$1" get pods -l "app.kubernetes.io/instance=$1" -o json; }
+pods_of() { kc -n "db-$1" get pods -l "app.kubernetes.io/name=mariadb,app.kubernetes.io/instance=$1" -o json; }
 
 check_both_pass_topology() {
   TOPOLOGY_INSTANCE=alpha TOPOLOGY_INSTALL=0 TOPOLOGY_DATABASE=orders TOPOLOGY_OWNER=orders_app \

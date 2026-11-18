@@ -16,7 +16,7 @@
 {{- $env := requiredEnv "ENV" }}
 {{- $platform := readFile (printf "../environments/%s/platform.yaml" $env) | fromYaml }}
 {{- $dir := env "INSTANCES_DIR" | default (printf "../environments/%s/instances" $env) }}
-{{- $catalogue := dict "storageTiers" $platform.storageTiers "storageClasses" $platform.storageClasses "nodeClasses" $platform.nodeClasses }}
+{{- $catalogue := dict "storageTiers" $platform.storageTiers "storageClasses" $platform.storageClasses "nodeClasses" $platform.nodeClasses "backupStore" $platform.backupStore }}
 {{- $files := readDir $dir }}
 
 helmDefaults:
@@ -32,8 +32,8 @@ releases:
 {{- if hasSuffix ".yaml" $file }}
 {{- $inst := readFile $file | fromYaml }}
 {{- $name := $inst.name | required (printf "%s: name is required" $file) }}
-{{- if ne $inst.engine "mariadb" }}
-{{- fail (printf "%s: engine %q is not available yet (postgres arrives with phase 10)" $file $inst.engine) }}
+{{- if not (has $inst.engine (list "mariadb" "postgres")) }}
+{{- fail (printf "%s: engine %q is not available" $file $inst.engine) }}
 {{- end }}
   # Namespace first, from the db-namespace chart. Its release record lives in default,
   # because the namespace it creates does not exist yet.
@@ -45,6 +45,7 @@ releases:
     values:
       - {{ dict "name" $name "engine" $inst.engine "quota" (index $inst "quota" | default dict) | toJson }}
 
+{{- if eq $inst.engine "mariadb" }}
   - name: {{ $name }}
     namespace: db-{{ $name }}
     chart: ../charts/mariadb-instance
@@ -54,8 +55,23 @@ releases:
       - default/ns-{{ $name }}
     values:
       - {{ merge (deepCopy $inst) (dict "catalogue" $catalogue) | toJson }}
-{{- $databases := index (index $inst "access" | default dict) "databases" | default list }}
-{{- if $databases }}
+{{- else }}
+  # PostgreSQL: one CloudNativePG Cluster. Its databases and roles are declared in the chart.
+  - name: {{ $name }}
+    namespace: db-{{ $name }}
+    chart: ../charts/postgres-instance
+    labels:
+      stage: instance
+    needs:
+      - default/ns-{{ $name }}
+    values:
+      - {{ merge (deepCopy $inst) (dict "catalogue" $catalogue) | toJson }}
+{{- end }}
+
+{{- $own := index (index $inst "access" | default dict) "databases" | default list }}
+{{- /* Every instance has the canary's database and user, whatever the file says (PLAN.md phase 6). */}}
+{{- $databases := concat $own (list (dict "name" "dbaas_canary" "owner" "canary")) }}
+{{- if eq $inst.engine "mariadb" }}
   # Users, then grants: a grant on a user that does not exist yet backs off for a long time.
   - name: {{ $name }}-users
     namespace: db-{{ $name }}
@@ -77,5 +93,21 @@ releases:
     values:
       - {{ dict "name" $name "stage" "grants" "databases" $databases | toJson }}
 {{- end }}
+
+  # The canary measures the instance from a client's side (PLAN.md phase 6). It waits for
+  # its role: the grants for MariaDB, the Cluster for PostgreSQL.
+  - name: {{ $name }}-canary
+    namespace: db-{{ $name }}
+    chart: ../charts/db-canary
+    labels:
+      stage: canary
+    needs:
+{{- if eq $inst.engine "mariadb" }}
+      - db-{{ $name }}/{{ $name }}-grants
+{{- else }}
+      - db-{{ $name }}/{{ $name }}
+{{- end }}
+    values:
+      - {{ dict "name" $name "engine" $inst.engine "image" (env "CANARY_IMAGE" | default "dbaas/db-canary:dev") "user" (ternary "canary" "canary" true) "database" "dbaas_canary" "port" (ternary 3306 5432 (eq $inst.engine "mariadb")) "caSecret" (printf "%s-ca%s" $name (ternary "-bundle" "" (eq $inst.engine "mariadb"))) | toJson }}
 {{- end }}
 {{- end }}

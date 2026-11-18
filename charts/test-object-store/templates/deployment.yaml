@@ -36,6 +36,10 @@ spec:
             - -s3.port={{ .Values.port }}
             - -s3.config=/etc/object-store/s3.json
             - -ip.bind=0.0.0.0
+            # Volumes are small and sparse: a preallocated 1 GiB volume per backup
+            # exhausted the sandbox disk (PLAN.md phase 5 run).
+            - -master.volumePreallocate=false
+            - -master.volumeSizeLimitMB={{ .Values.volumeSizeLimitMB }}
           ports:
             - name: s3
               containerPort: {{ .Values.port }}

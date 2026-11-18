@@ -1,0 +1,136 @@
+{{- $name := required "name is required" .Values.name -}}
+{{- if not (has .Values.engine (list "mariadb" "postgres")) -}}
+{{- fail (printf "engine must be mariadb or postgres, got %q" .Values.engine) -}}
+{{- end -}}
+{{- $labels := dict
+    "app.kubernetes.io/name" "db-canary"
+    "app.kubernetes.io/instance" $name
+    "app.kubernetes.io/part-of" "dbaas"
+    "dbaas.local/engine" .Values.engine -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}-canary
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  # The canary is measured with the instance it measures: its own pods never share a node
+  # with each other, so one node drain cannot silence both canaries.
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: db-canary
+      app.kubernetes.io/instance: {{ $name | quote }}
+  template:
+    metadata:
+      labels:
+        {{- toYaml $labels | nindent 8 }}
+    spec:
+      priorityClassName: {{ .Values.priorityClassName }}
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: db-canary
+                  app.kubernetes.io/instance: {{ $name | quote }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: canary
+          image: {{ .Values.image | quote }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          args:
+            - --engine={{ .Values.engine }}
+            - --write-host={{ $name }}-primary.{{ .Release.Namespace }}.svc
+            - --read-host={{ $name }}-secondary.{{ .Release.Namespace }}.svc
+            - --port={{ .Values.port }}
+            - --user={{ .Values.user }}
+            - --password-file=/secrets/password/password
+            - --database={{ .Values.database }}
+            {{- if .Values.verifyServer }}
+            - --ca-file=/secrets/ca/ca.crt
+            {{- end }}
+            - --interval={{ .Values.interval }}
+            - --timeout={{ .Values.timeout }}
+            - --retention={{ .Values.retention }}
+            - --listen=:8080
+          env:
+            - name: WRITER
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          ports:
+            - name: metrics
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: password
+              mountPath: /secrets/password
+              readOnly: true
+            {{- if .Values.verifyServer }}
+            - name: ca
+              mountPath: /secrets/ca
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: password
+          secret:
+            secretName: {{ $name }}-canary-credentials
+            items:
+              - key: password
+                path: password
+        {{- if .Values.verifyServer }}
+        - name: ca
+          secret:
+            secretName: {{ .Values.caSecret | default (printf "%s-ca-bundle" $name) }}
+            items:
+              - key: ca.crt
+                path: ca.crt
+        {{- end }}
+---
+# Scraped by the Prometheus of kube-prometheus-stack in the monitoring namespace.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ $name }}-canary
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: db-canary
+      app.kubernetes.io/instance: {{ $name | quote }}
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s

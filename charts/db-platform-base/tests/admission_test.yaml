@@ -4,10 +4,10 @@ templates:
 values:
   - ../ci/kind.yaml
 tests:
-  - it: binds the policy to managed namespaces, denying violations
+  - it: binds the policies to managed namespaces, denying violations
     asserts:
       - hasDocuments:
-          count: 2
+          count: 4
       - equal:
           path: spec.validationActions[0]
           value: Deny
@@ -16,6 +16,20 @@ tests:
           path: spec.matchResources.namespaceSelector.matchLabels["dbaas.local/managed"]
           value: "true"
         documentIndex: 1
+      - equal:
+          path: spec.validationActions[0]
+          value: Deny
+        documentIndex: 3
+  - it: checks the guarantees of a managed PostgreSQL cluster
+    asserts:
+      - equal:
+          path: spec.matchConstraints.resourceRules[0].resources[0]
+          value: clusters
+        documentIndex: 2
+      - matchRegex:
+          path: spec.validations[0].expression
+          pattern: "instances >= 2"
+        documentIndex: 2
   - it: checks the three guarantees of a managed MariaDB
     asserts:
       - equal:
@@ -23,7 +37,7 @@ tests:
           value: mariadbs
         documentIndex: 0
       - hasDocuments:
-          count: 2
+          count: 4
   - it: states the replica count rule with the plan's value
     asserts:
       - matchRegex:

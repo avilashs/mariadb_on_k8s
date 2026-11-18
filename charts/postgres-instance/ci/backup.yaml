@@ -1,0 +1,25 @@
+name: ledger
+size: small
+replicas: 2
+nodeClass: kind-nvme
+backup:
+  enabled: true
+access:
+  databases:
+    - name: ledger
+      owner: ledger_app
+catalogue:
+  storageTiers:
+    premium-ssd-v2: {provisioner: rancher.io/local-path, parameters: {}, perClassParameters: false}
+    local-nvme: {provisioner: rancher.io/local-path, parameters: {}, perClassParameters: false}
+  storageClasses:
+    db-pv2: {tier: premium-ssd-v2, iops: 3000, throughputMbps: 125}
+    db-nvme: {tier: local-nvme}
+  nodeClasses:
+    kind-pv2: {storageTier: premium-ssd-v2, storageClassName: db-pv2, vmSize: kind-node}
+    kind-nvme: {storageTier: local-nvme, storageClassName: db-nvme, vmSize: kind-node}
+  backupStore:
+    bucket: dbaas-test
+    endpoint: test-object-store.object-store.svc:8333
+    region: us-east-1
+    tls: false

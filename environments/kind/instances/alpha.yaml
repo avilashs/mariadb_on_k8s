@@ -8,3 +8,5 @@ access:
   databases:
     - name: orders
       owner: orders_app
+backup:
+  enabled: true

@@ -13,6 +13,23 @@ testObjectStore:
   install: true
   bucket: dbaas-test
 
+backupStore:
+  # The S3-compatible bucket for backups and binlog archives. The instance charts read
+  # this block through the catalogue. The Secret named here holds access-key-id and
+  # secret-access-key; instances-up.sh copies it into every instance namespace that
+  # has backups enabled. Kind: the public test store (PLAN.md phase 5).
+  bucket: dbaas-test
+  endpoint: test-object-store.object-store.svc:8333
+  region: us-east-1
+  tls: false
+  credentialsNamespace: object-store
+  credentialsSecret: test-object-store-credentials
+
+drainGuard:
+  # Two system nodes in kind: three replicas could not be placed (PLAN.md phase 7 step 4).
+  replicas: 2
+  image: dbaas/drain-guard:dev
+
 localNvme:
   # kind has no NVMe devices. The local-csi-driver chart is installed only on AKS.
   driver: none

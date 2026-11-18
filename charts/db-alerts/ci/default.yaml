@@ -1,0 +1,2 @@
+namespace: monitoring
+prometheusRelease: kube-prometheus-stack

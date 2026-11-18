@@ -1,0 +1,16 @@
+{{- /* One PrometheusRule per rules file. The files are the promtool sources, unchanged. */ -}}
+{{- range $path, $_ := .Files.Glob "rules/*.yaml" }}
+{{- $doc := $.Files.Get $path | fromYaml }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: dbaas-{{ base $path | trimSuffix ".yaml" }}
+  namespace: {{ $.Values.namespace }}
+  labels:
+    app.kubernetes.io/part-of: dbaas
+    release: {{ $.Values.prometheusRelease }}
+spec:
+  groups:
+    {{- toYaml $doc.groups | nindent 4 }}
+{{- end }}

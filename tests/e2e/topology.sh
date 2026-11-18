@@ -32,7 +32,7 @@ else
 fi
 
 primary() { kc -n "${NS}" get mariadb "${NAME}" -o jsonpath='{.status.currentPrimary}'; }
-pods() { kc -n "${NS}" get pods -l "app.kubernetes.io/instance=${NAME}" -o jsonpath='{.items[*].metadata.name}'; }
+pods() { kc -n "${NS}" get pods -l "app.kubernetes.io/name=mariadb,app.kubernetes.io/instance=${NAME}" -o jsonpath='{.items[*].metadata.name}'; }
 replica_pods() {
   local p
   for p in $(pods); do

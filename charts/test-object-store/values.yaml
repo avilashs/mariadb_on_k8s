@@ -9,6 +9,8 @@ bucket: dbaas-test
 accessKey: dbaas-test-access
 secretKey: dbaas-test-secret
 port: 8333
+# Largest SeaweedFS volume in MB. Small volumes keep the kind disk footprint small.
+volumeSizeLimitMB: 256
 storage:
   # Ephemeral in kind: test data does not need to outlive the cluster.
   size: 20Gi

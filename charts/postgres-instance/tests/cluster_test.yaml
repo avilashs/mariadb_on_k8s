@@ -1,0 +1,89 @@
+suite: the postgres cluster keeps the MariaDB contract
+templates:
+  - templates/cluster.yaml
+values:
+  - ../ci/backup.yaml
+tests:
+  - it: runs one primary plus the standbys
+    asserts:
+      - equal:
+          path: spec.instances
+          value: 3
+      - isKind:
+          of: Cluster
+  - it: requires one pod per node, scoped by the instance, never preferred
+    asserts:
+      - equal:
+          path: spec.affinity.enablePodAntiAffinity
+          value: true
+      - equal:
+          path: spec.affinity.podAntiAffinityType
+          value: required
+      - equal:
+          path: spec.affinity.topologyKey
+          value: kubernetes.io/hostname
+  - it: keeps the operator's single budget and never adds another
+    asserts:
+      - equal:
+          path: spec.enablePDB
+          value: true
+  - it: pins the node class, tolerates the database taint and uses the database priority
+    asserts:
+      - equal:
+          path: spec.affinity.nodeSelector["dbaas.local/node-class"]
+          value: kind-nvme
+      - equal:
+          path: spec.priorityClassName
+          value: dbaas-database
+  - it: synchronises one standby before a commit is acknowledged
+    asserts:
+      - equal:
+          path: spec.postgresql.synchronous.number
+          value: 1
+      - equal:
+          path: spec.postgresql.synchronous.method
+          value: any
+  - it: exposes the MariaDB service names through managed services
+    asserts:
+      - equal:
+          path: spec.managed.services.additional[0].serviceTemplate.metadata.name
+          value: ledger-primary
+      - equal:
+          path: spec.managed.services.additional[0].selectorType
+          value: rw
+      - equal:
+          path: spec.managed.services.additional[1].serviceTemplate.metadata.name
+          value: ledger-secondary
+      - equal:
+          path: spec.managed.services.additional[1].selectorType
+          value: ro
+  - it: archives WAL through the Barman plugin, and says so in the plugin list
+    asserts:
+      - equal:
+          path: spec.plugins[0].name
+          value: barman-cloud.cloudnative-pg.io
+      - equal:
+          path: spec.plugins[0].isWALArchiver
+          value: true
+  - it: updates the primary unsupervised by switchover, never by restart
+    asserts:
+      - equal:
+          path: spec.primaryUpdateStrategy
+          value: unsupervised
+      - equal:
+          path: spec.primaryUpdateMethod
+          value: switchover
+  - it: declares the canary role through the operator, with a Secret reference only
+    asserts:
+      - equal:
+          path: spec.managed.roles[0].name
+          value: canary
+      - equal:
+          path: spec.managed.roles[0].passwordSecret.name
+          value: ledger-canary-credentials
+  - it: refuses a local-nvme instance without backups
+    set:
+      backup.enabled: false
+    asserts:
+      - failedTemplate:
+          errorMessage: "the local-nvme tier needs backups enabled (PLAN.md 7.5)"

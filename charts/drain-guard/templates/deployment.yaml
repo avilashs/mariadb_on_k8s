@@ -1,0 +1,136 @@
+{{- $labels := dict "app.kubernetes.io/name" "drain-guard" "app.kubernetes.io/part-of" "dbaas" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: drain-guard
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: drain-guard
+  template:
+    metadata:
+      labels:
+        {{- toYaml $labels | nindent 8 }}
+    spec:
+      serviceAccountName: drain-guard
+      priorityClassName: {{ .Values.priorityClassName }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: drain-guard
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: drain-guard
+          image: {{ .Values.image | quote }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          args:
+            - --resync={{ .Values.resync }}
+            - --cert-dir=/tls
+            - --webhook-port=9443
+            - --metrics-bind-address=:8080
+            - --health-probe-bind-address=:8081
+            {{- if .Values.drainTaintKeys }}
+            - --drain-taint-keys={{ join "," .Values.drainTaintKeys }}
+            {{- end }}
+          ports:
+            - name: webhook
+              containerPort: 9443
+            - name: metrics
+              containerPort: 8080
+            - name: probes
+              containerPort: 8081
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: probes
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: probes
+            periodSeconds: 20
+          lifecycle:
+            preStop:
+              # Endpoints are removed while the process still serves, then it exits.
+              sleep:
+                seconds: {{ .Values.preStopSleepSeconds }}
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tls
+              mountPath: /tls
+              readOnly: true
+      volumes:
+        - name: tls
+          secret:
+            secretName: drain-guard-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: drain-guard
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: drain-guard
+    app.kubernetes.io/part-of: dbaas
+spec:
+  selector:
+    app.kubernetes.io/name: drain-guard
+  ports:
+    - name: webhook
+      port: 443
+      targetPort: webhook
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: drain-guard
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: drain-guard
+    app.kubernetes.io/part-of: dbaas
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: drain-guard
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: drain-guard
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: drain-guard
+    app.kubernetes.io/part-of: dbaas
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: drain-guard
+  podMetricsEndpoints:
+    - port: metrics
+      interval: 15s

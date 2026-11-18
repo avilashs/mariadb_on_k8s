@@ -62,3 +62,111 @@ The `dbaas-mariadb-guarantees` ValidatingAdmissionPolicy applies to every namesp
 labelled `dbaas.local/managed=true`. It refuses a MariaDB that does not run
 replication, has fewer than two pods, or has no required anti-affinity per node.
 It runs in the API server, so it also applies to a resource applied with kubectl.
+
+## Backups and restore
+
+Every instance with `backup.enabled: true` gets three objects (`charts/mariadb-instance/templates/backup.yaml`):
+a scheduled `PhysicalBackup` (`<name>-backup`), a suspended one that names where replicas restore from
+(`<name>-backup-template`), and a `PointInTimeRecovery` (`<name>`) that archives binary logs. Backups and
+binlogs go to the bucket in `catalogue.backupStore` (platform file), under `<name>/physical/` and
+`<name>/binlog/`. The bucket credentials are copied into the instance namespace as `dbaas-backup-store` by
+`scripts/ensure-backup-credentials.sh`, which `make instances-up` runs. The copy is never overwritten.
+
+Backups are required on the `local-nvme` tier: a pod that moves to a new node comes back empty and rebuilds
+itself from the newest backup, then catches up through GTID.
+
+Recovery objective, as measured by the e2e suites on kind (not a production promise): replicas rebuild
+automatically; point in time restore reaches any time up to the archive's newest position, which trails
+the present by at most `backup.binlogArchiveTimeout` (1 minute by default). A production promise comes from
+`make restore-drill` on a production-sized data set (phase 12 gate).
+
+### Check that backups are current
+
+```bash
+kubectl -n db-<name> get physicalbackup,pointintimerecovery
+kubectl -n db-<name> get pointintimerecovery <name> -o jsonpath='{.status.lastRecoverableTime}{"\n"}'
+```
+
+`lastRecoverableTime` should be within a few minutes of now. A stale value means the binlog archive is stuck;
+the `DbBinlogArchiveStale` alert (phase 8) covers it.
+
+### Restore to a point in time
+
+```bash
+scripts/restore-instance.sh <name> 2026-11-18T10:15:00Z <name>-restore
+```
+
+The script waits until the archive covers the target time, then creates `<name>-restore` in the same
+namespace from the source object (same image, storage class, node class; two replicas) and waits for Ready.
+It refuses a future time. The restored instance has no backups of its own and never writes to the source's
+prefixes. Check the data, then either promote it (move the application's connection, which is an
+application change, not a platform one) or delete it:
+
+```bash
+kubectl -n db-<name> delete mariadb <name>-restore
+kubectl -n db-<name> delete pvc -l app.kubernetes.io/instance=<name>-restore
+kubectl -n db-<name> delete secret <name>-restore-root
+```
+
+### Rebuild one replica
+
+Normally nothing is needed: a replica with an error it cannot fix recovers after `errorDurationThreshold` (5 minutes).
+To force it, delete its volume claim and its pod. The operator restores the newest backup into a new volume and
+the replica catches up. Delete the claim first, or the pod comes back on the old volume.
+
+```bash
+pod=<name>-1                                   # never the current primary
+pvc=$(kubectl -n db-<name> get pod "$pod" -o jsonpath='{.spec.volumes[?(@.persistentVolumeClaim)].persistentVolumeClaim.claimName}')
+kubectl -n db-<name> delete pvc "$pvc" --wait=false
+kubectl -n db-<name> delete pod "$pod"
+```
+
+### Change the backup schedule or retention
+
+Edit `backup.schedule` (cron, UTC) or `backup.retention` in the instance file, then `make instances-up`.
+Changing the schedule does not start a backup; to take one now, change `schedule.onDemand` on
+`<name>-backup` to a value no backup has used:
+
+```bash
+kubectl -n db-<name> patch physicalbackup <name>-backup --type merge \
+  -p "{\"spec\":{\"schedule\":{\"onDemand\":\"manual-$(date +%s)\"}}}"
+```
+
+### Restore drill
+
+`make restore-drill NAME=<name> [TIME=<RFC 3339 UTC>]` restores to `TIME` (default: the newest recoverable time)
+into `<name>-drill`, counts the rows of the marker table `dbaas_drill.marker`, deletes the throwaway and exits 0.
+A failed drill leaves the throwaway in place. The weekly CronJob `db-restore-drill` in `dbaas-system` runs the same
+check for every instance with point in time recovery; its last successful run is what the `DbRestoreDrillStale`
+alert watches. The marker table is created by the application team that owns the instance.
+
+### Rotate the backup credentials
+
+Rotate in the object store first, then replace the copy in each instance namespace and let the next backup use it:
+
+```bash
+kubectl -n db-<name> delete secret dbaas-backup-store
+scripts/ensure-backup-credentials.sh <context> db-<name> environments/<env>/platform.yaml
+```
+
+The operator reads the Secret when a Job starts; a running backup keeps the old values until it ends.
+
+## The canary
+
+Every instance has a `<name>-canary` Deployment (two pods, on the `system` pool) that writes one row per second
+through `<name>-primary` and reads the newest row through `<name>-secondary`. It uses its own least-privilege
+account, `canary`, which can use only the `dbaas_canary` database. It measures what a client sees; it has no
+failover logic of its own. The image is `dbaas/db-canary` (`tools/db-canary`).
+
+Read the numbers of one canary pod (port-forward; the image has no shell):
+
+```bash
+kubectl -n db-<name> port-forward pod/<name>-canary-<hash> 18080:8080 &
+curl -s localhost:18080/report | jq .
+```
+
+`longest_write_outage_seconds` is the longest gap between two acknowledged writes since the last reset. Normal
+operation shows about one second. `lost_acknowledged_writes` must be zero; anything else is a data-loss incident.
+`POST /reset` starts a new measurement window (`curl -X POST localhost:18080/reset`).
+
+Metrics for Prometheus are `db_canary_*`, listed in `docs/architecture.md` and used by the alerts of phase 8.

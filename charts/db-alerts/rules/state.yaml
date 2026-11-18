@@ -1,0 +1,38 @@
+# State alerts from kube-state-metrics: the MariaDB resource itself (custom resource state
+# configured in helmfile.d/values/kube-prometheus-stack.yaml) and the backup chain.
+groups:
+  - name: dbaas-state
+    rules:
+      - alert: DbInstanceNotReady
+        expr: |
+          max by (namespace) (dbaas_mariadb_ready{ready_status="True"}) == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Instance {{ $labels.namespace }} has not been Ready for 10 minutes"
+          description: "Warning now, critical at 30 minutes. Check the MariaDB conditions."
+          runbook_url: "docs/runbooks/DbInstanceNotReady.md"
+          dashboard_url: "/d/dbaas-instance/mariadb-instance?var-namespace={{ $labels.namespace }}"
+      - alert: DbInstanceNotReadyCritical
+        expr: |
+          max by (namespace) (dbaas_mariadb_ready{ready_status="True"}) == 0
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Instance {{ $labels.namespace }} has not been Ready for 30 minutes"
+          description: "Writes or redundancy are likely lost."
+          runbook_url: "docs/runbooks/DbInstanceNotReady.md"
+          dashboard_url: "/d/dbaas-instance/mariadb-instance?var-namespace={{ $labels.namespace }}"
+      - alert: DbLogArchiveStalled
+        expr: |
+          (time() - max by (namespace) (dbaas_pitr_last_recoverable_time_seconds)) > 2 * 3600
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The binlog archive of {{ $labels.namespace }} is more than two hours behind"
+          description: "Point in time recovery cannot reach the newest changes."
+          runbook_url: "docs/runbooks/DbLogArchiveStalled.md"
+          dashboard_url: "/d/dbaas-backup/backup-and-recovery"

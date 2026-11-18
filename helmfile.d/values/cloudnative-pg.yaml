@@ -1,0 +1,17 @@
+# CloudNativePG operator (PLAN.md phase 10, step 1): two replicas, required anti-affinity
+# between them, the platform priority, and the system pool.
+replicaCount: 2
+priorityClassName: dbaas-platform
+nodeSelector:
+  pool: system
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - topologyKey: kubernetes.io/hostname
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: cloudnative-pg
+# The CRDs come with the chart: uninstalling the chart would delete every Cluster. The
+# schemas for `make schemas` come from the pinned manifest (versions.yaml crdSources).
+crds:
+  create: true

@@ -80,6 +80,71 @@ releases:
       - {{ dict "bucket" (dig "testObjectStore" "bucket" "dbaas-test" $platform) "nodeSelector" (dict "pool" "system") "priorityClassName" "dbaas-platform" | toJson }}
 {{- end }}
 
+  # PostgreSQL: the CloudNativePG operator and the Barman Cloud plugin (PLAN.md phase 10).
+  # The plugin needs cert-manager for its certificates.
+  - name: cloudnative-pg
+    namespace: cnpg-system
+    createNamespace: true
+    chart: {{ $versions.operators.postgres.chart }}
+    version: {{ $versions.operators.postgres.chartVersion | quote }}
+    needs: {{ toJson $base }}
+    values:
+      - values/cloudnative-pg.yaml
+
+  - name: barman-cloud
+    namespace: cnpg-system
+    createNamespace: false
+    chart: {{ $versions.operators.postgres.barmanCloudPlugin.chart }}
+    version: {{ $versions.operators.postgres.barmanCloudPlugin.chartVersion | quote }}
+    needs:
+      - default/db-platform-base
+      - cert-manager/cert-manager
+      - cnpg-system/cloudnative-pg
+    values:
+      - values/barman-cloud.yaml
+
+  # The alert rules of section 7.2, as PrometheusRule objects (phase 8).
+  - name: db-alerts
+    namespace: monitoring
+    chart: ../charts/db-alerts
+    needs:
+      - default/db-platform-base
+{{- if eq (dig "monitoring" "install" false $platform) true }}
+      - monitoring/{{ dig "monitoring" "prometheusRelease" "kube-prometheus-stack" $platform }}
+{{- end }}
+
+  # The Grafana dashboards of phase 8, provisioned into the Databases folder.
+  - name: db-dashboards
+    namespace: monitoring
+    chart: ../charts/db-dashboards
+    needs:
+      - default/db-platform-base
+{{- if eq (dig "monitoring" "install" false $platform) true }}
+      - monitoring/{{ dig "monitoring" "prometheusRelease" "kube-prometheus-stack" $platform }}
+{{- end }}
+
+  # The weekly restore drill (PLAN.md phase 5). Its scripts are the files in scripts/.
+  - name: db-restore-drill
+    namespace: dbaas-system
+    chart: ../charts/db-restore-drill
+    needs: {{ toJson $base }}
+    set:
+      - name: scripts.restoreDrill
+        file: ../scripts/restore-drill.sh
+      - name: scripts.restoreInstance
+        file: ../scripts/restore-instance.sh
+
+  # The role-aware drain guard (PLAN.md phase 7): controller and eviction webhook.
+  # It needs the certificates of cert-manager, so it comes after it.
+  - name: drain-guard
+    namespace: dbaas-system
+    chart: ../charts/drain-guard
+    needs:
+      - default/db-platform-base
+      - cert-manager/cert-manager
+    values:
+      - {{ dict "image" (dig "drainGuard" "image" "dbaas/drain-guard:dev" $platform) "replicas" (dig "drainGuard" "replicas" 3 $platform) "drainTaintKeys" (dig "drainGuard" "drainTaintKeys" (list) $platform) | toJson }}
+
 {{- if eq (dig "localNvme" "driver" "none" $platform) "helm" }}
   - name: local-csi-driver
     namespace: kube-system

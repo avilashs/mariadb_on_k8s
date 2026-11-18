@@ -1,0 +1,3 @@
+name: alpha
+engine: mariadb
+image: dbaas/db-canary:ci

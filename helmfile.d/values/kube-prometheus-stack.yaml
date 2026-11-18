@@ -55,6 +55,57 @@ kube-state-metrics:
   nodeSelector:
     pool: system
   priorityClassName: dbaas-platform
+  # Node labels the capacity alerts need (PLAN.md 7.2, DbNoHeadroom).
+  metricLabelsAllowlist:
+    - nodes=[dbaas.local/node-class,topology.kubernetes.io/zone]
+  # The MariaDB resource and its PITR state, read as metrics (PLAN.md phase 8, step 1).
+  # Rules: alerts/db-alerts state.yaml. Names: dbaas_mariadb_* and dbaas_pitr_*.
+  rbac:
+    extraRules:
+      - apiGroups: ["k8s.mariadb.com"]
+        resources: ["mariadbs", "pointintimerecoveries"]
+        verbs: ["list", "watch"]
+  customResourceState:
+    enabled: true
+    config:
+      kind: CustomResourceStateMetrics
+      spec:
+        resources:
+          - groupVersionKind:
+              group: k8s.mariadb.com
+              version: v1alpha1
+              kind: MariaDB
+            metricNamePrefix: dbaas_mariadb
+            labelsFromPath:
+              namespace: [metadata, namespace]
+              name: [metadata, name]
+            metrics:
+              - name: ready
+                help: "The Ready condition of the MariaDB resource, one series per status"
+                each:
+                  type: StateSet
+                  stateSet:
+                    labelName: ready_status
+                    path: [status, conditions]
+                    labelFromKey: type
+                    list: ["True", "False", "Unknown"]
+                    valueFrom: [status]
+          - groupVersionKind:
+              group: k8s.mariadb.com
+              version: v1alpha1
+              kind: PointInTimeRecovery
+            metricNamePrefix: dbaas_pitr
+            labelsFromPath:
+              namespace: [metadata, namespace]
+              name: [metadata, name]
+            metrics:
+              - name: last_recoverable_time_seconds
+                help: "Unix time of the newest position the archive can restore"
+                each:
+                  type: Gauge
+                  gauge:
+                    path: [status, lastRecoverableTime]
+                    valueFrom: [status, lastRecoverableTime]
 prometheus-node-exporter:
   # Explicitly empty: the DaemonSet must not run on the tainted database pool.
   tolerations: []

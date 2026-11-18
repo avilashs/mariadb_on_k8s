@@ -1,0 +1,119 @@
+suite: backups and point in time recovery
+templates:
+  - templates/backup.yaml
+  - templates/mariadb.yaml
+values:
+  - ../ci/nvme.yaml
+tests:
+  - it: renders nothing when backups are disabled
+    set:
+      backup.enabled: false
+      nodeClass: kind-pv2
+    template: templates/backup.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+  - it: renders the scheduled backup, the replica template and the point in time recovery
+    template: templates/backup.yaml
+    asserts:
+      - hasDocuments:
+          count: 3
+      - isKind:
+          of: PhysicalBackup
+        documentIndex: 0
+      - equal:
+          path: metadata.name
+          value: ledger-backup
+        documentIndex: 0
+      - equal:
+          path: spec.schedule.immediate
+          value: true
+        documentIndex: 0
+      - equal:
+          path: spec.target
+          value: PreferReplica
+        documentIndex: 0
+      - equal:
+          path: spec.schedule.suspend
+          value: true
+        documentIndex: 1
+      - isKind:
+          of: PointInTimeRecovery
+        documentIndex: 2
+      - equal:
+          path: spec.physicalBackupRef.name
+          value: ledger-backup
+        documentIndex: 2
+  - it: stores backups and binlogs under separate prefixes of the same bucket
+    template: templates/backup.yaml
+    asserts:
+      - equal:
+          path: spec.storage.s3.prefix
+          value: ledger/physical
+        documentIndex: 0
+      - equal:
+          path: spec.storage.s3.prefix
+          value: ledger/binlog
+        documentIndex: 2
+      - equal:
+          path: spec.storage.s3.bucket
+          value: dbaas-test
+        documentIndex: 2
+  - it: refers to the credentials Secret by name only, never by value
+    template: templates/backup.yaml
+    asserts:
+      - equal:
+          path: spec.storage.s3.accessKeyIdSecretKeyRef.name
+          value: dbaas-backup-store
+        documentIndex: 0
+      - equal:
+          path: spec.storage.s3.secretAccessKeySecretKeyRef.key
+          value: secret-access-key
+        documentIndex: 0
+      - notExists:
+          path: spec.storage.s3.accessKeyId
+        documentIndex: 0
+  - it: lets the backup Jobs and the replica bootstrap Jobs run on the database nodes they read from
+    template: templates/backup.yaml
+    asserts:
+      - equal:
+          path: spec.tolerations[0].value
+          value: database
+        documentIndex: 0
+      - equal:
+          path: spec.tolerations[0].value
+          value: database
+        documentIndex: 1
+  - it: keeps backups for the configured retention
+    template: templates/backup.yaml
+    asserts:
+      - equal:
+          path: spec.maxRetention
+          value: 720h
+        documentIndex: 0
+  - it: makes the instance restore new replicas from the backup template and recover broken ones
+    template: templates/mariadb.yaml
+    asserts:
+      - equal:
+          path: spec.replication.replica.bootstrapFrom.physicalBackupTemplateRef.name
+          value: ledger-backup-template
+      - equal:
+          path: spec.replication.replica.recovery.enabled
+          value: true
+      - equal:
+          path: spec.replication.replica.recovery.errorDurationThreshold
+          value: 5m
+      - equal:
+          path: spec.pointInTimeRecoveryRef.name
+          value: ledger
+  - it: leaves replication without bootstrap or recovery when backups are disabled
+    template: templates/mariadb.yaml
+    set:
+      backup.enabled: false
+      # Only the local-nvme tier requires backups, so a premium-tier instance may omit them.
+      nodeClass: kind-pv2
+    asserts:
+      - notExists:
+          path: spec.replication.replica.bootstrapFrom
+      - notExists:
+          path: spec.pointInTimeRecoveryRef

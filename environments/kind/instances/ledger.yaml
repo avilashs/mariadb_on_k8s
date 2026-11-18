@@ -1,0 +1,11 @@
+# A small PostgreSQL instance on the premium-ssd-v2 node class: the same contract as the
+# MariaDB instances, measured by the same canary (PLAN.md phase 10).
+name: ledger
+engine: postgres
+size: small
+replicas: 1
+nodeClass: kind-pv2
+access:
+  databases:
+    - name: ledger
+      owner: ledger_app

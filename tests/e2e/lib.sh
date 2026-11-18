@@ -58,6 +58,7 @@ instance_values() {
     .catalogue.storageTiers = load(\"${PLATFORM_FILE}\").storageTiers |
     .catalogue.storageClasses = load(\"${PLATFORM_FILE}\").storageClasses |
     .catalogue.nodeClasses = load(\"${PLATFORM_FILE}\").nodeClasses |
+    .catalogue.backupStore = load(\"${PLATFORM_FILE}\").backupStore |
     .access.databases = [{\"name\": \"orders\", \"owner\": \"orders_app\"}]
   " >"${out}"
   printf '%s\n' "${out}"
@@ -112,4 +113,78 @@ sql() {
   local password
   password="$(kc -n "db-${name}" get secret "${name}-root" -o jsonpath='{.data.password}' | base64 -d)"
   kc -n "db-${name}" exec "${pod}" -c mariadb -- mariadb --ssl -uroot -p"${password}" "$@"
+}
+
+# s3_objects <prefix>: lists the kind test bucket under a prefix, with the AWS CLI run
+# as a Job-free pod in the object store namespace, reading the test credentials.
+s3_objects() {
+  local prefix="$1" image pod overrides
+  image="$(yq -r '.platform.testObjectStore.awsCliImage' "${ROOT}/versions.yaml")"
+  pod="s3-list-$(date +%s%N | tail -c 7)"
+  overrides="$(jq -n --arg img "${image}" --arg cmd "aws --endpoint-url http://test-object-store.object-store.svc:8333 s3 ls s3://dbaas-test/${prefix} --recursive" '
+    {spec: {containers: [{name: "s3", image: $img, command: ["sh", "-c", $cmd],
+      env: [
+        {name: "AWS_ACCESS_KEY_ID", valueFrom: {secretKeyRef: {name: "test-object-store-credentials", key: "access-key-id"}}},
+        {name: "AWS_SECRET_ACCESS_KEY", valueFrom: {secretKeyRef: {name: "test-object-store-credentials", key: "secret-access-key"}}},
+        {name: "AWS_DEFAULT_REGION", value: "us-east-1"}]}]}}')"
+  kc -n object-store run "${pod}" --rm -i --restart=Never --quiet --image="${image}" --overrides="${overrides}" 2>/dev/null
+}
+
+# replica_status <instance> <pod>: prints the replication threads of a replica.
+replica_status() {
+  sql "$1" "$2" -e "SHOW SLAVE STATUS\G" 2>/dev/null | grep -E 'Slave_(IO|SQL)_Running:' | awk '{print $2}' | paste -sd' ' -
+}
+
+# marker_write <instance> <pod> <label>: writes one row to dbaas_marker.markers on the primary.
+marker_write() {
+  sql "$1" "$2" -e "CREATE DATABASE IF NOT EXISTS dbaas_marker; CREATE TABLE IF NOT EXISTS dbaas_marker.markers (label VARCHAR(64) PRIMARY KEY, written_at DATETIME(6)); INSERT INTO dbaas_marker.markers VALUES ('$3', NOW(6));"
+}
+
+# marker_present <instance> <pod> <label>: exits 0 when the row is on that pod.
+marker_present() {
+  [[ "$(sql "$1" "$2" -N -B -e "SELECT COUNT(*) FROM dbaas_marker.markers WHERE label = '$3'" 2>/dev/null)" == "1" ]]
+}
+
+# primary_pod <instance>: the pod the operator reports as primary.
+primary_pod() {
+  kc -n "db-$1" get mariadb "$1" -o jsonpath='{.status.currentPrimary}'
+}
+
+# canary_pods <instance>: the canary pods of an instance.
+canary_pods() {
+  kc -n "db-$1" get pods -l "app.kubernetes.io/name=db-canary,app.kubernetes.io/instance=$1" \
+    -o jsonpath='{.items[*].metadata.name}'
+}
+
+# canary_call <namespace> <pod> <method> <path>: one request to a canary through a short
+# port-forward (the canary image has no shell, so exec is not an option).
+canary_call() {
+  local ns="$1" pod="$2" method="$3" path="$4" port pid out
+  port=$((18080 + RANDOM % 1000))
+  kc -n "${ns}" port-forward "pod/${pod}" "${port}:8080" >/dev/null 2>&1 &
+  pid=$!
+  for _ in $(seq 1 50); do
+    curl -fsS -o /dev/null "http://127.0.0.1:${port}/healthz" 2>/dev/null && break
+    sleep 0.2
+  done
+  out="$(curl -fsS -X "${method}" "http://127.0.0.1:${port}${path}")" || out=""
+  kill "${pid}" 2>/dev/null || true
+  wait "${pid}" 2>/dev/null || true
+  printf '%s' "${out}"
+}
+
+# canary_reset <instance>: starts a new measurement window on every canary of the instance.
+canary_reset() {
+  local pod
+  for pod in $(canary_pods "$1"); do
+    canary_call "db-$1" "${pod}" POST /reset >/dev/null
+  done
+}
+
+# canary_reports <instance>: one JSON report per canary pod, one per line.
+canary_reports() {
+  local pod
+  for pod in $(canary_pods "$1"); do
+    canary_call "db-$1" "${pod}" GET /report | jq -c .
+  done
 }

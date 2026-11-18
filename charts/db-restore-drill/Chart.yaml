@@ -1,0 +1,6 @@
+apiVersion: v2
+name: db-restore-drill
+description: Weekly restore drill for every instance with point in time recovery (PLAN.md phase 5).
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

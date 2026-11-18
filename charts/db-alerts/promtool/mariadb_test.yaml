@@ -1,0 +1,137 @@
+# promtool unit tests for rules/mariadb.yaml and rules/state.yaml.
+rule_files:
+  - ../rules/mariadb.yaml
+  - ../rules/state.yaml
+evaluation_interval: 1m
+tests:
+  - name: two writable servers in one instance is a split brain after 30 seconds
+    interval: 30s
+    input_series:
+      - series: 'mysql_global_variables_read_only{namespace="db-alpha", pod="alpha-0"}'
+        values: '0x10'
+      - series: 'mysql_global_variables_read_only{namespace="db-alpha", pod="alpha-1"}'
+        values: '0x10'
+      - series: 'mysql_global_variables_read_only{namespace="db-alpha", pod="alpha-2"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: MariaDBMultipleWritableServers
+        exp_alerts:
+          - exp_labels:
+              namespace: db-alpha
+              severity: critical
+            exp_annotations:
+              dashboard_url: "/d/dbaas-instance/mariadb-instance?var-namespace=db-alpha"
+              description: "Stop writes to the instance and follow the split-brain runbook."
+              runbook_url: "docs/runbooks/MariaDBMultipleWritableServers.md"
+              summary: "Two servers of db-alpha accept writes: split brain"
+  - name: one writable server is not a split brain
+    interval: 30s
+    input_series:
+      - series: 'mysql_global_variables_read_only{namespace="db-alpha", pod="alpha-0"}'
+        values: '0x10'
+      - series: 'mysql_global_variables_read_only{namespace="db-alpha", pod="alpha-1"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: MariaDBMultipleWritableServers
+        exp_alerts: []
+  - name: a replica whose SQL thread stopped is critical after five minutes
+    interval: 1m
+    input_series:
+      - series: 'mysql_slave_status_slave_io_running{namespace="db-alpha", pod="alpha-1"}'
+        values: '1x12'
+      - series: 'mysql_slave_status_slave_sql_running{namespace="db-alpha", pod="alpha-1"}'
+        values: '0x12'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: MariaDBReplicationStopped
+        exp_alerts:
+          - exp_labels:
+              namespace: db-alpha
+              pod: alpha-1
+              severity: critical
+            exp_annotations:
+              dashboard_url: "/d/dbaas-instance/mariadb-instance?var-namespace=db-alpha"
+              description: "The replica is not applying changes. Recovery rebuilds it after errorDurationThreshold."
+              runbook_url: "docs/runbooks/MariaDBReplicationStopped.md"
+              summary: "Replication has stopped on alpha-1"
+  - name: a replica that keeps up is quiet
+    interval: 1m
+    input_series:
+      - series: 'mysql_slave_status_slave_io_running{namespace="db-alpha", pod="alpha-1"}'
+        values: '1x12'
+      - series: 'mysql_slave_status_slave_sql_running{namespace="db-alpha", pod="alpha-1"}'
+        values: '1x12'
+      - series: 'mysql_slave_status_seconds_behind_master{namespace="db-alpha", pod="alpha-1"}'
+        values: '0x12'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: MariaDBReplicationStopped
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: MariaDBReplicationLag
+        exp_alerts: []
+  - name: a replica 40 seconds behind is a warning
+    interval: 1m
+    input_series:
+      - series: 'mysql_slave_status_seconds_behind_master{namespace="db-alpha", pod="alpha-1"}'
+        values: '40x12'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: MariaDBReplicationLag
+        exp_alerts:
+          - exp_labels:
+              namespace: db-alpha
+              pod: alpha-1
+              severity: warning
+            exp_annotations:
+              dashboard_url: "/d/dbaas-instance/mariadb-instance?var-namespace=db-alpha"
+              description: "Replica reads are stale. Check the replica's threads and disk."
+              runbook_url: "docs/runbooks/MariaDBReplicationLag.md"
+              summary: "alpha-1 is more than 30 seconds behind"
+  - name: connections above 95 percent are critical
+    interval: 1m
+    input_series:
+      - series: 'mysql_global_status_threads_connected{namespace="db-alpha"}'
+        values: '96x10'
+      - series: 'mysql_global_variables_max_connections{namespace="db-alpha"}'
+        values: '100x10'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: MariaDBConnectionsCritical
+        exp_alerts:
+          - exp_labels:
+              namespace: db-alpha
+              severity: critical
+            exp_annotations:
+              dashboard_url: "/d/dbaas-instance/mariadb-instance?var-namespace=db-alpha"
+              description: "New connections will be refused soon."
+              runbook_url: "docs/runbooks/MariaDBConnectionsHigh.md"
+              summary: "Connections of db-alpha are above 95% of the limit"
+  - name: an instance not ready for ten minutes is a warning
+    interval: 1m
+    input_series:
+      - series: 'dbaas_mariadb_ready{namespace="db-alpha"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: DbInstanceNotReady
+        exp_alerts:
+          - exp_labels:
+              namespace: db-alpha
+              severity: warning
+            exp_annotations:
+              dashboard_url: "/d/dbaas-instance/mariadb-instance?var-namespace=db-alpha"
+              description: "Warning now, critical at 30 minutes. Check the MariaDB conditions."
+              runbook_url: "docs/runbooks/DbInstanceNotReady.md"
+              summary: "Instance db-alpha has not been Ready for 10 minutes"
+  - name: an instance that is ready is quiet
+    interval: 1m
+    input_series:
+      - series: 'dbaas_mariadb_ready{namespace="db-alpha"}'
+        values: '1x20'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: DbInstanceNotReady
+        exp_alerts: []

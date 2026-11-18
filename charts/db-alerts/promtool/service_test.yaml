@@ -1,0 +1,174 @@
+# promtool unit tests for rules/service.yaml. Each alert has a firing and a non-firing series.
+rule_files:
+  - ../rules/service.yaml
+evaluation_interval: 1m
+tests:
+  - name: write unavailable fires when no canary write succeeded for a minute
+    interval: 1m
+    input_series:
+      - series: 'db_canary_last_write_success_timestamp_seconds{namespace="db-alpha", job="db-canary"}'
+        values: '0x6'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: DbWriteUnavailable
+        exp_alerts:
+          - exp_labels:
+              namespace: db-alpha
+              severity: critical
+            exp_annotations:
+              dashboard_url: "/d/dbaas-service/service-level?var-namespace=db-alpha"
+              description: "Clients cannot write to the instance in db-alpha. Last success was 4m 0s ago."
+              runbook_url: "docs/runbooks/DbWriteUnavailable.md"
+              summary: "No canary write has succeeded in db-alpha for over a minute"
+
+  - name: write unavailable stays quiet while writes succeed
+    interval: 1m
+    input_series:
+      - series: 'db_canary_last_write_success_timestamp_seconds{namespace="db-alpha", job="db-canary"}'
+        values: '0+60x6'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: DbWriteUnavailable
+        exp_alerts: []
+
+  - name: read unavailable fires when no read succeeded for two minutes
+    interval: 1m
+    input_series:
+      - series: 'db_canary_read_total{namespace="db-alpha", result="ok", job="db-canary"}'
+        values: '5x6'
+      - series: 'db_canary_read_total{namespace="db-alpha", result="error", job="db-canary"}'
+        values: '0+1x6'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: DbReadUnavailable
+        exp_alerts:
+          - exp_labels:
+              namespace: db-alpha
+              severity: critical
+            exp_annotations:
+              dashboard_url: "/d/dbaas-service/service-level?var-namespace=db-alpha"
+              description: "Readers cannot read from a replica in db-alpha."
+              runbook_url: "docs/runbooks/DbReadUnavailable.md"
+              summary: "No canary read through the secondary Service in db-alpha for 2 minutes"
+
+  - name: read unavailable stays quiet while reads succeed
+    interval: 1m
+    input_series:
+      - series: 'db_canary_read_total{namespace="db-alpha", result="ok", job="db-canary"}'
+        values: '0+10x6'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: DbReadUnavailable
+        exp_alerts: []
+
+  - name: two pods of one instance on one node fire at once
+    interval: 1m
+    input_series:
+      - series: 'kube_pod_info{namespace="db-alpha", pod="alpha-0", node="worker3"}'
+        values: '1x4'
+      - series: 'kube_pod_info{namespace="db-alpha", pod="alpha-1", node="worker3"}'
+        values: '1x4'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: DbPodsShareNode
+        exp_alerts:
+          - exp_labels:
+              namespace: db-alpha
+              node: worker3
+              severity: critical
+            exp_annotations:
+              dashboard_url: "/d/dbaas-maintenance/maintenance"
+              description: "Required anti-affinity was violated or disabled. This must never fire."
+              runbook_url: "docs/runbooks/DbPodsShareNode.md"
+              summary: "Two pods of one database instance run on the same node"
+
+  - name: pods on different nodes do not share a node
+    interval: 1m
+    input_series:
+      - series: 'kube_pod_info{namespace="db-alpha", pod="alpha-0", node="worker3"}'
+        values: '1x4'
+      - series: 'kube_pod_info{namespace="db-alpha", pod="alpha-1", node="worker4"}'
+        values: '1x4'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: DbPodsShareNode
+        exp_alerts: []
+
+  - name: a backup older than 26 hours is critical
+    interval: 1h
+    input_series:
+      - series: 'kube_cronjob_status_last_successful_time{namespace="db-alpha", cronjob="alpha-backup"}'
+        values: '0x30'
+    alert_rule_test:
+      - eval_time: 27h
+        alertname: DbBackupTooOld
+        exp_alerts:
+          - exp_labels:
+              namespace: db-alpha
+              cronjob: alpha-backup
+              severity: critical
+            exp_annotations:
+              dashboard_url: "/d/dbaas-backup/backup-and-recovery"
+              description: "Point in time recovery is not backed by a recent base backup."
+              runbook_url: "docs/runbooks/DbBackupTooOld.md"
+              summary: "The newest backup of alpha-backup is older than 26 hours"
+
+  - name: a fresh backup is not reported
+    interval: 1h
+    input_series:
+      - series: 'kube_cronjob_status_last_successful_time{namespace="db-alpha", cronjob="alpha-backup"}'
+        values: '0+3600x30'
+    alert_rule_test:
+      - eval_time: 27h
+        alertname: DbBackupTooOld
+        exp_alerts: []
+
+  - name: a blocked drain pages after 15 minutes
+    interval: 1m
+    input_series:
+      - series: 'drain_guard_blocked_instances'
+        values: '1x20'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: DbDrainBlocked
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "A drain has been blocked for 15 minutes: 1 instance(s) cannot move their primary"
+              description: "No replica can take the primary role. The drain waits; it will not fail silently."
+              runbook_url: "docs/runbooks/DbDrainBlocked.md"
+              dashboard_url: "/d/dbaas-maintenance/maintenance"
+      - eval_time: 10m
+        alertname: DbDrainBlocked
+        exp_alerts: []
+
+  - name: drain guard without a ready replica is critical after five minutes
+    interval: 1m
+    input_series:
+      - series: 'kube_deployment_status_replicas_available{namespace="dbaas-system", deployment="drain-guard"}'
+        values: '0x12'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: DrainGuardDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              dashboard_url: "/d/dbaas-maintenance/maintenance"
+              description: "MariaDB evictions are refused while it is down. Drains stop."
+              runbook_url: "docs/runbooks/DrainGuardDown.md"
+              summary: "drain-guard has no Ready replica for 5 minutes"
+
+  - name: drain guard with two ready replicas is quiet
+    interval: 1m
+    input_series:
+      - series: 'kube_deployment_status_replicas_available{namespace="dbaas-system", deployment="drain-guard"}'
+        values: '2x12'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: DrainGuardDown
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: DrainGuardDegraded
+        exp_alerts: []

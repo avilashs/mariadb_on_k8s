@@ -63,6 +63,8 @@ scheduling:
   terminationGracePeriodSeconds: 300
 
 access:
+  # Namespaces outside the instance that may connect (PLAN.md phase 11). Empty by default.
+  allowedNamespaces: []
   tlsRequired: true
   # Not rendered here. The db-access releases (users, then grants) create a Database,
   # a User and a Grant per entry. The field lives in the instance file so that one
@@ -70,9 +72,14 @@ access:
   databases: []
 
 backup:
-  # Phase 5 renders the backup schedules. On the local-nvme tier, enabling backups is
-  # mandatory: the chart refuses to render without them.
+  # Backups are rendered when enabled: a scheduled PhysicalBackup, the bootstrap template
+  # replicas restore from, and point in time recovery (PLAN.md phase 5). The object store
+  # comes from the platform (catalogue.backupStore). On local-nvme it is mandatory.
   enabled: false
+  schedule: "17 2 * * *"        # daily full backup, cron in UTC
+  retention: 720h               # backups older than this are removed
+  compression: gzip             # none, bzip2, gzip or zstd
+  binlogArchiveTimeout: 1m      # bounds the newest changes a point in time restore cannot reach yet
 
 monitoring:
   enabled: true

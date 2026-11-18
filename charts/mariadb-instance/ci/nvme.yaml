@@ -6,6 +6,13 @@ nodeClass: kind-nvme
 backup:
   enabled: true
 catalogue:
+  backupStore:
+    bucket: dbaas-test
+    endpoint: test-object-store.object-store.svc:8333
+    region: us-east-1
+    tls: false
+    credentialsNamespace: object-store
+    credentialsSecret: test-object-store-credentials
   storageTiers:
     premium-ssd-v2:
       provisioner: rancher.io/local-path

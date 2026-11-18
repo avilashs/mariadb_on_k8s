@@ -31,7 +31,7 @@ helm --kube-context "${CONTEXT}" upgrade --install "ns-${NAME}" "${ROOT}/charts/
 helm --kube-context "${CONTEXT}" upgrade --install "${NAME}" "${ROOT}/charts/mariadb-instance" \
   --namespace "${NS}" --values "${values}" --wait=false >/dev/null 2>&1
 
-pods_json() { kc -n "${NS}" get pods -l "app.kubernetes.io/instance=${NAME}" -o json; }
+pods_json() { kc -n "${NS}" get pods -l "app.kubernetes.io/name=mariadb,app.kubernetes.io/instance=${NAME}" -o json; }
 running_json() { pods_json | jq '[.items[] | select(.status.phase == "Running" and ([.status.containerStatuses[]? | .ready] | all))]'; }
 
 # Wait for the pods that fit to be running, and for the extra pod to be Pending.

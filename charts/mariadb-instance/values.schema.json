@@ -34,7 +34,20 @@
       "properties": {
         "storageTiers": {"type": "object"},
         "storageClasses": {"type": "object"},
-        "nodeClasses": {"type": "object"}
+        "nodeClasses": {"type": "object"},
+        "backupStore": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["bucket", "endpoint", "region"],
+          "properties": {
+            "bucket": {"type": "string", "minLength": 1},
+            "endpoint": {"type": "string", "minLength": 1},
+            "region": {"type": "string", "minLength": 1},
+            "tls": {"type": "boolean"},
+            "credentialsNamespace": {"type": "string"},
+            "credentialsSecret": {"type": "string"}
+          }
+        }
       }
     },
     "resources": {
@@ -74,6 +87,7 @@
       "additionalProperties": false,
       "properties": {
         "tlsRequired": {"type": "boolean"},
+        "allowedNamespaces": {"type": "array", "items": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"}},
         "databases": {
           "type": "array",
           "items": {
@@ -91,7 +105,13 @@
     "backup": {
       "type": "object",
       "additionalProperties": false,
-      "properties": {"enabled": {"type": "boolean"}}
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "schedule": {"type": "string", "minLength": 9},
+        "retention": {"type": "string", "pattern": "^[0-9]+(h|m|s)$"},
+        "compression": {"type": "string", "enum": ["none", "bzip2", "gzip", "zstd"]},
+        "binlogArchiveTimeout": {"type": "string", "pattern": "^[0-9]+(s|m|h)$"}
+      }
     },
     "monitoring": {
       "type": "object",

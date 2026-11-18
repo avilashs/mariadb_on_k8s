@@ -1,0 +1,18 @@
+{{- $name := include "dbaas.instanceName" . -}}
+{{- range .Values.access.databases }}
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: {{ $name }}-{{ .name | replace "_" "-" }}
+  namespace: db-{{ $name }}
+  labels:
+    app.kubernetes.io/part-of: dbaas
+    dbaas.local/engine: postgres
+spec:
+  cluster:
+    name: {{ $name }}
+  name: {{ .name }}
+  owner: {{ .owner }}
+  ensure: present
+{{- end }}

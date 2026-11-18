@@ -1,0 +1,33 @@
+# Refuses eviction of database pods that the guard must protect. failurePolicy Fail: if the
+# guard is unreachable, evictions in managed namespaces are refused (PLAN.md phase 7).
+# sideEffects NoneOnDryRun: a dry run is answered, and it changes nothing.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: drain-guard
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/drain-guard-tls
+  labels:
+    app.kubernetes.io/part-of: dbaas
+webhooks:
+  - name: eviction.drain-guard.dbaas.local
+    admissionReviewVersions: ["v1"]
+    clientConfig:
+      service:
+        name: drain-guard
+        namespace: {{ .Release.Namespace }}
+        path: /validate-eviction
+        port: 443
+    rules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["pods/eviction"]
+        scope: Namespaced
+    namespaceSelector:
+      matchLabels:
+        dbaas.local/engine: mariadb
+    failurePolicy: Fail
+    timeoutSeconds: {{ .Values.webhookTimeoutSeconds }}
+    sideEffects: NoneOnDryRun
+    matchPolicy: Equivalent

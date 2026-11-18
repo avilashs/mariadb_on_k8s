@@ -1,0 +1,55 @@
+suite: the drain guard
+values:
+  - ../ci/kind.yaml
+tests:
+  - it: serves the webhook over TLS from the cert-manager secret with at least two replicas
+    template: templates/deployment.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 2
+      - equal:
+          path: spec.template.spec.volumes[0].secret.secretName
+          value: drain-guard-tls
+  - it: "is fail-closed: the webhook covers pods/eviction in MariaDB namespaces only"
+    template: templates/webhook.yaml
+    asserts:
+      - equal:
+          path: webhooks[0].failurePolicy
+          value: Fail
+      - equal:
+          path: webhooks[0].rules[0].resources[0]
+          value: pods/eviction
+      - equal:
+          path: webhooks[0].namespaceSelector.matchLabels["dbaas.local/engine"]
+          value: mariadb
+  - it: answers a dry run without side effects, within five seconds
+    template: templates/webhook.yaml
+    asserts:
+      - equal:
+          path: webhooks[0].sideEffects
+          value: NoneOnDryRun
+      - equal:
+          path: webhooks[0].timeoutSeconds
+          value: 5
+  - it: never runs without a budget of its own
+    template: templates/deployment.yaml
+    documentIndex: 2
+    asserts:
+      - isKind:
+          of: PodDisruptionBudget
+      - equal:
+          path: spec.maxUnavailable
+          value: 1
+  - it: has a cluster role that cannot read secrets or change anything but MariaDB
+    template: templates/rbac.yaml
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: ClusterRole
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["secrets"]

@@ -1,0 +1,12 @@
+# Barman Cloud plugin: WAL archive and base backups to the object store (PLAN.md phase 10).
+replicaCount: 2
+priorityClassName: dbaas-platform
+nodeSelector:
+  pool: system
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - topologyKey: kubernetes.io/hostname
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: plugin-barman-cloud

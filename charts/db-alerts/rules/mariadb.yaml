@@ -1,0 +1,116 @@
+# MariaDB alerts (PLAN.md 7.2). Inputs: the mysqld exporter of each instance. These rules
+# stay silent while the exporter has no data (mysql_up is absent); see docs/deviations.md.
+groups:
+  - name: dbaas-mariadb
+    rules:
+      - alert: MariaDBPrimaryDown
+        expr: |
+          max by (namespace) (mysql_up) == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "The exporter cannot reach the primary of {{ $labels.namespace }}"
+          description: "Writes may be failing; the canary tells whether clients see it."
+          runbook_url: "docs/runbooks/MariaDBPrimaryDown.md"
+          dashboard_url: "/d/dbaas-instance/mariadb-instance?var-namespace={{ $labels.namespace }}"
+      - alert: MariaDBNoWritableServer
+        expr: |
+          count by (namespace) (mysql_global_variables_read_only == 0) == 0 and on (namespace) (max by (namespace) (mysql_up) == 1)
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No server of {{ $labels.namespace }} accepts writes"
+          description: "The primary role is missing. Check the MariaDB resource conditions."
+          runbook_url: "docs/runbooks/MariaDBNoWritableServer.md"
+          dashboard_url: "/d/dbaas-instance/mariadb-instance?var-namespace={{ $labels.namespace }}"
+      - alert: MariaDBMultipleWritableServers
+        expr: |
+          count by (namespace) (mysql_global_variables_read_only == 0) > 1
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Two servers of {{ $labels.namespace }} accept writes: split brain"
+          description: "Stop writes to the instance and follow the split-brain runbook."
+          runbook_url: "docs/runbooks/MariaDBMultipleWritableServers.md"
+          dashboard_url: "/d/dbaas-instance/mariadb-instance?var-namespace={{ $labels.namespace }}"
+      - alert: MariaDBReplicationStopped
+        expr: |
+          min by (namespace, pod) (mysql_slave_status_slave_io_running) == 0
+          or min by (namespace, pod) (mysql_slave_status_slave_sql_running) == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Replication has stopped on {{ $labels.pod }}"
+          description: "The replica is not applying changes. Recovery rebuilds it after errorDurationThreshold."
+          runbook_url: "docs/runbooks/MariaDBReplicationStopped.md"
+          dashboard_url: "/d/dbaas-instance/mariadb-instance?var-namespace={{ $labels.namespace }}"
+      - alert: MariaDBReplicationLag
+        expr: |
+          max by (namespace, pod) (mysql_slave_status_seconds_behind_master) > 30
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.pod }} is more than 30 seconds behind"
+          description: "Replica reads are stale. Check the replica's threads and disk."
+          runbook_url: "docs/runbooks/MariaDBReplicationLag.md"
+          dashboard_url: "/d/dbaas-instance/mariadb-instance?var-namespace={{ $labels.namespace }}"
+      - alert: MariaDBReplicationLagCritical
+        expr: |
+          max by (namespace, pod) (mysql_slave_status_seconds_behind_master) > 300
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.pod }} is more than 5 minutes behind"
+          description: "Failover to this replica would lose the lag as writes."
+          runbook_url: "docs/runbooks/MariaDBReplicationLag.md"
+          dashboard_url: "/d/dbaas-instance/mariadb-instance?var-namespace={{ $labels.namespace }}"
+      - alert: MariaDBConnectionsHigh
+        expr: |
+          max by (namespace) (mysql_global_status_threads_connected) / max by (namespace) (mysql_global_variables_max_connections) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Connections of {{ $labels.namespace }} are above 80% of the limit"
+          description: "Applications should use pooling. Raise max_connections only with a memory check."
+          runbook_url: "docs/runbooks/MariaDBConnectionsHigh.md"
+          dashboard_url: "/d/dbaas-instance/mariadb-instance?var-namespace={{ $labels.namespace }}"
+      - alert: MariaDBConnectionsCritical
+        expr: |
+          max by (namespace) (mysql_global_status_threads_connected) / max by (namespace) (mysql_global_variables_max_connections) > 0.95
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Connections of {{ $labels.namespace }} are above 95% of the limit"
+          description: "New connections will be refused soon."
+          runbook_url: "docs/runbooks/MariaDBConnectionsHigh.md"
+          dashboard_url: "/d/dbaas-instance/mariadb-instance?var-namespace={{ $labels.namespace }}"
+      - alert: MariaDBSlowQueries
+        expr: |
+          sum by (namespace) (rate(mysql_global_status_slow_queries[15m])) > 0.5
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow queries in {{ $labels.namespace }} above 0.5 per second"
+          description: "Look at the slow query log in the logs of the pod."
+          runbook_url: "docs/runbooks/MariaDBSlowQueries.md"
+          dashboard_url: "/d/dbaas-instance/mariadb-instance?var-namespace={{ $labels.namespace }}"
+      - alert: MariaDBSemiSyncOff
+        expr: |
+          max by (namespace) (mysql_global_status_rpl_semi_sync_master_status) == 0 and on (namespace) (max by (namespace) (mysql_up) == 1)
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.namespace }} has run without semi-synchronous replication for 10 minutes"
+          description: "A failover now could lose acknowledged writes. Restore semi-sync first."
+          runbook_url: "docs/runbooks/MariaDBSemiSyncOff.md"
+          dashboard_url: "/d/dbaas-instance/mariadb-instance?var-namespace={{ $labels.namespace }}"

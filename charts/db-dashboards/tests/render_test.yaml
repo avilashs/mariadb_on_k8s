@@ -1,0 +1,18 @@
+suite: grafana dashboards as provisioned ConfigMaps
+templates:
+  - templates/dashboards.yaml
+values:
+  - ../ci/default.yaml
+tests:
+  - it: renders one ConfigMap per dashboard, labelled for the sidecar, in the Databases folder
+    asserts:
+      - hasDocuments:
+          count: 5
+      - equal:
+          path: metadata.labels.grafana_dashboard
+          value: "1"
+        documentIndex: 0
+      - equal:
+          path: metadata.annotations.grafana_folder
+          value: Databases
+        documentIndex: 0

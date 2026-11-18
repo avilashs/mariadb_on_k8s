@@ -1,0 +1,3 @@
+scripts:
+  restoreDrill: "#!/usr/bin/env bash\necho drill\n"
+  restoreInstance: "#!/usr/bin/env bash\necho restore\n"

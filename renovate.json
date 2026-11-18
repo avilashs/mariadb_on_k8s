@@ -1,0 +1,19 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Proposes version bumps to versions.yaml one component at a time (PLAN.md phase 11, step 5). Every proposal runs the full e2e matrix in CI.",
+  "extends": ["config:recommended"],
+  "enabledManagers": ["regex"],
+  "regexManagers": [
+    {
+      "fileMatch": ["^versions\\.yaml$"],
+      "matchStrings": ["(?<depName>[a-z0-9./_-]+):\\s*(?<currentValue>v?[0-9][0-9a-zA-Z.+-]*)\\s*#\\s*renovate:\\s*datasource=(?<datasource>\\S+)"],
+      "datatypeTemplate": "string"
+    }
+  ],
+  "packageRules": [
+    { "matchUpdateTypes": ["minor", "major"], "groupName": "one component per proposal", "enabled": true },
+    { "matchDatasources": ["docker"], "pinDigests": true }
+  ],
+  "prConcurrentLimit": 1,
+  "labels": ["dependencies", "e2e-full-matrix"]
+}

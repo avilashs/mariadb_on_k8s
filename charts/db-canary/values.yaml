@@ -1,0 +1,22 @@
+# Required: name (the instance), engine (mariadb or postgres).
+name: ""
+engine: mariadb
+image: dbaas/db-canary:dev            # built by `make images` and loaded into kind
+imagePullPolicy: IfNotPresent
+replicas: 2
+port: 3306
+interval: 1s
+timeout: 2s
+retention: 1h
+# Least-privilege account created by the access chart (owner "canary"), and its password.
+# The account name is the owner name, as for every other owner (charts/db-access).
+user: canary
+database: dbaas_canary
+# The canary runs on the system pool, so draining a database node does not disturb the instrument.
+nodeSelector:
+  pool: system
+priorityClassName: dbaas-platform
+# The operator's CA bundle (<name>-ca-bundle) verifies the server when present.
+# Secret with the server CA (ca.crt): <name>-ca-bundle for MariaDB, <name>-ca for CloudNativePG.
+caSecret: ""
+verifyServer: true

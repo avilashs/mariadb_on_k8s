@@ -1,0 +1,4 @@
+name: ledger
+engine: postgres
+port: 5432
+image: dbaas/db-canary:ci

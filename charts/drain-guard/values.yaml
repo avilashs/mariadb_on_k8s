@@ -1,0 +1,15 @@
+image: dbaas/drain-guard:dev
+imagePullPolicy: IfNotPresent
+# Three replicas in production (PLAN.md phase 7 step 4); kind has two system nodes.
+replicas: 3
+resync: 30s
+# Extra taint keys that mark a draining node (provider specific). The defaults are built in.
+drainTaintKeys: []
+nodeSelector:
+  pool: system
+priorityClassName: dbaas-platform
+# The webhook is fail-closed (failurePolicy Fail): the guard must answer within this time.
+webhookTimeoutSeconds: 5
+# Seconds the pod keeps serving after SIGTERM, so endpoints are removed before the process exits.
+preStopSleepSeconds: 5
+terminationGracePeriodSeconds: 30

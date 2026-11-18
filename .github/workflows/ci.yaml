@@ -82,6 +82,9 @@ jobs:
       - name: Create kind cluster
         timeout-minutes: 20
         run: make kind-up
+      - name: Build images
+        timeout-minutes: 10
+        run: make images
       - name: Install platform
         timeout-minutes: 30
         run: make platform-up
@@ -116,7 +119,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [rotation, chaos]
+        suite: [drain, rotation]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
@@ -137,6 +140,9 @@ jobs:
       - name: Create kind cluster
         timeout-minutes: 20
         run: make kind-up
+      - name: Build images
+        timeout-minutes: 10
+        run: make images
       - name: Install platform
         timeout-minutes: 30
         run: make platform-up

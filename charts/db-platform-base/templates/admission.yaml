@@ -46,3 +46,46 @@ spec:
     namespaceSelector:
       matchLabels:
         dbaas.local/managed: "true"
+---
+# The same guarantees for PostgreSQL (PLAN.md phase 10, step 6): at least two instances,
+# required anti-affinity, and the operator's budget never disabled.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: dbaas-postgres-guarantees
+  labels:
+    app.kubernetes.io/part-of: dbaas
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    namespaceSelector:
+      matchLabels:
+        dbaas.local/managed: "true"
+    resourceRules:
+      - apiGroups: ["postgresql.cnpg.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["clusters"]
+  validations:
+    - expression: "has(object.spec.instances) && object.spec.instances >= 2"
+      message: "a managed PostgreSQL cluster must have at least two instances (spec.instances >= 2)"
+    - expression: >-
+        has(object.spec.affinity) && object.spec.affinity.enablePodAntiAffinity == true &&
+        object.spec.affinity.podAntiAffinityType == "required"
+      message: "a managed PostgreSQL cluster must require one pod per node (affinity.podAntiAffinityType: required)"
+    - expression: "!has(object.spec.enablePDB) || object.spec.enablePDB == true"
+      message: "a managed PostgreSQL cluster must keep its disruption budget (enablePDB must not be false)"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: dbaas-postgres-guarantees
+  labels:
+    app.kubernetes.io/part-of: dbaas
+spec:
+  policyName: dbaas-postgres-guarantees
+  validationActions: ["Deny"]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        dbaas.local/managed: "true"

@@ -1,0 +1,62 @@
+suite: the canary deployment
+release:
+  name: alpha-canary
+  namespace: db-alpha
+templates:
+  - templates/canary.yaml
+values:
+  - ../ci/mariadb.yaml
+tests:
+  - it: runs two canaries on the system pool, spread across nodes
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 2
+        documentIndex: 0
+      - equal:
+          path: spec.template.spec.nodeSelector.pool
+          value: system
+        documentIndex: 0
+      - equal:
+          path: spec.template.spec.affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution[0].topologyKey
+          value: kubernetes.io/hostname
+        documentIndex: 0
+  - it: connects to the primary for writes and the secondary for reads, as its own user
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --write-host=alpha-primary.db-alpha.svc
+        documentIndex: 0
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --read-host=alpha-secondary.db-alpha.svc
+        documentIndex: 0
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --user=canary
+        documentIndex: 0
+  - it: never runs as root and never escalates
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+        documentIndex: 0
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+        documentIndex: 0
+  - it: is scraped by the monitoring Prometheus
+    asserts:
+      - isKind:
+          of: PodMonitor
+        documentIndex: 1
+      - equal:
+          path: metadata.labels.release
+          value: kube-prometheus-stack
+        documentIndex: 1
+  - it: refuses an unknown engine
+    set:
+      engine: oracle
+    asserts:
+      - failedTemplate:
+          errorMessage: "engine must be mariadb or postgres, got \"oracle\""

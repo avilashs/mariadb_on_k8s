@@ -1,0 +1,104 @@
+{{- /*
+Backups of one instance (PLAN.md phase 5). Three objects, all in the instance namespace:
+
+  <name>-backup            PhysicalBackup, scheduled. Also runs once right after the
+                           instance starts (schedule.immediate), so replicas have a
+                           backup to seed from.
+  <name>-backup-template   PhysicalBackup, suspended. Only its storage is used: a new or
+                           emptied replica restores the newest backup found there
+                           (spec.replication.replica.bootstrapFrom in mariadb.yaml).
+  <name>                   PointInTimeRecovery. Archives binary logs to the same bucket
+                           under another prefix and names the base backup.
+
+The credentials Secret is referenced by name only; instances-up.sh copies it into the
+namespace (scripts/ensure-backup-credentials.sh). Nothing here holds a secret value.
+*/ -}}
+{{- if .Values.backup.enabled }}
+{{- $name := include "dbaas.instanceName" . -}}
+{{- $store := required "catalogue.backupStore is required when backup.enabled" .Values.catalogue.backupStore -}}
+{{- $creds := dict
+    "accessKeyIdSecretKeyRef" (dict "name" "dbaas-backup-store" "key" "access-key-id")
+    "secretAccessKeySecretKeyRef" (dict "name" "dbaas-backup-store" "key" "secret-access-key")
+    "tls" (dict "enabled" (default false $store.tls)) -}}
+{{- $physical := merge (dict "bucket" $store.bucket "endpoint" $store.endpoint "region" $store.region "prefix" (printf "%s/physical" $name)) (deepCopy $creds) -}}
+{{- $binlog := merge (dict "bucket" $store.bucket "endpoint" $store.endpoint "region" $store.region "prefix" (printf "%s/binlog" $name)) (deepCopy $creds) -}}
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: PhysicalBackup
+metadata:
+  name: {{ $name }}-backup
+  namespace: db-{{ $name }}
+  labels:
+    app.kubernetes.io/part-of: dbaas
+    app.kubernetes.io/instance: {{ $name | quote }}
+    dbaas.local/engine: mariadb
+    dbaas.local/backup-role: scheduled
+spec:
+  mariaDbRef:
+    name: {{ $name }}
+  schedule:
+    cron: {{ .Values.backup.schedule | quote }}
+    immediate: true
+    suspend: false
+  # Backups read from a replica when one is ready, so the primary does not pay for them.
+  # The backup Job mounts that replica's volume, so it must run on the database nodes too.
+  target: PreferReplica
+  tolerations:
+    - key: workload
+      operator: Equal
+      value: database
+      effect: NoSchedule
+  compression: {{ .Values.backup.compression }}
+  maxRetention: {{ .Values.backup.retention }}
+  storage:
+    s3:
+      {{- toYaml $physical | nindent 6 }}
+---
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: PhysicalBackup
+metadata:
+  name: {{ $name }}-backup-template
+  namespace: db-{{ $name }}
+  labels:
+    app.kubernetes.io/part-of: dbaas
+    app.kubernetes.io/instance: {{ $name | quote }}
+    dbaas.local/engine: mariadb
+    dbaas.local/backup-role: template
+spec:
+  mariaDbRef:
+    name: {{ $name }}
+  schedule:
+    cron: {{ .Values.backup.schedule | quote }}
+    # Never runs: it only names where the backups are. Replicas restore from there, and
+    # their bootstrap Jobs take their scheduling from this spec, so it tolerates the database taint.
+    suspend: true
+  target: PreferReplica
+  tolerations:
+    - key: workload
+      operator: Equal
+      value: database
+      effect: NoSchedule
+  compression: {{ .Values.backup.compression }}
+  maxRetention: {{ .Values.backup.retention }}
+  storage:
+    s3:
+      {{- toYaml $physical | nindent 6 }}
+---
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: PointInTimeRecovery
+metadata:
+  name: {{ $name }}
+  namespace: db-{{ $name }}
+  labels:
+    app.kubernetes.io/part-of: dbaas
+    app.kubernetes.io/instance: {{ $name | quote }}
+    dbaas.local/engine: mariadb
+spec:
+  physicalBackupRef:
+    name: {{ $name }}-backup
+  # Binary logs are archived at least this often. It bounds the window of changes that a
+  # point in time restore cannot reach yet.
+  archiveTimeout: {{ .Values.backup.binlogArchiveTimeout | quote }}
+  storage:
+    s3:
+      {{- toYaml $binlog | nindent 6 }}
+{{- end }}
