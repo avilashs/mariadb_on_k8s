@@ -112,7 +112,7 @@ tests:
   - name: an instance not ready for ten minutes is a warning
     interval: 1m
     input_series:
-      - series: 'dbaas_mariadb_ready{namespace="db-alpha"}'
+      - series: 'dbaas_mariadb_ready{namespace="db-alpha", ready_status="True"}'
         values: '0x20'
     alert_rule_test:
       - eval_time: 12m
@@ -129,7 +129,7 @@ tests:
   - name: an instance that is ready is quiet
     interval: 1m
     input_series:
-      - series: 'dbaas_mariadb_ready{namespace="db-alpha"}'
+      - series: 'dbaas_mariadb_ready{namespace="db-alpha", ready_status="True"}'
         values: '1x20'
     alert_rule_test:
       - eval_time: 12m
