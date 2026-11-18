@@ -71,18 +71,29 @@ Environment=NO_PROXY=localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,.svc,.cluster.
 # kernel defaults are too low for ten nodes; kind's own documentation asks for
 # these values. Raise them when we can, and say so when we cannot.
 check_inotify_limits() {
+  local want_instances=1024 want_watches=524288
   local instances watches
   instances="$(sysctl -n fs.inotify.max_user_instances 2>/dev/null || echo 0)"
   watches="$(sysctl -n fs.inotify.max_user_watches 2>/dev/null || echo 0)"
-  if ((instances >= 1024 && watches >= 524288)); then
+  if ((instances >= want_instances && watches >= want_watches)); then
     return 0
   fi
+  # Raise the limits as root, or through passwordless sudo (GitHub-hosted runners).
+  local sysctl_cmd=()
   if [[ "$(id -u)" == "0" ]]; then
-    log "raising inotify limits for kind (instances ${instances} -> 1024, watches ${watches} -> 524288)"
-    sysctl -w fs.inotify.max_user_instances=1024 fs.inotify.max_user_watches=524288 >/dev/null
-  else
-    warn "inotify limits are low (instances ${instances}, watches ${watches}); kind nodes may fail with 'too many open files'. Run as root or raise them: sudo sysctl -w fs.inotify.max_user_instances=1024 fs.inotify.max_user_watches=524288"
+    sysctl_cmd=(sysctl)
+  elif sudo -n true 2>/dev/null; then
+    sysctl_cmd=(sudo -n sysctl)
   fi
+  if ((${#sysctl_cmd[@]} > 0)); then
+    log "raising inotify limits (instances ${instances} -> ${want_instances}, watches ${watches} -> ${want_watches})"
+    "${sysctl_cmd[@]}" -w "fs.inotify.max_user_instances=${want_instances}" "fs.inotify.max_user_watches=${want_watches}" >/dev/null
+    instances="$(sysctl -n fs.inotify.max_user_instances)"
+    watches="$(sysctl -n fs.inotify.max_user_watches)"
+  fi
+  # Fail here, in seconds, rather than as a kubelet that never starts minutes later.
+  ((instances >= want_instances && watches >= want_watches)) ||
+    die "inotify limits are too low for kind (instances ${instances}, watches ${watches}). Run: sudo sysctl -w fs.inotify.max_user_instances=${want_instances} fs.inotify.max_user_watches=${want_watches}"
 }
 
 check_inotify_limits
