@@ -1,0 +1,63 @@
+# Platform values for the kind test environment (PLAN.md sections 3, 7.5).
+# Everything here is test-only. A real environment provides its own file with
+# the same keys; the storage classes and node classes must match its node pools.
+cloud: kind
+kubeContext: kind-dbaas
+
+monitoring:
+  install: true
+  prometheusRelease: kube-prometheus-stack
+
+testObjectStore:
+  # Kind-only S3-compatible store for backups and binlog archives.
+  install: true
+  bucket: dbaas-test
+
+localNvme:
+  # kind has no NVMe devices. The local-csi-driver chart is installed only on AKS.
+  driver: none
+
+# kind has no Azure disks and no NVMe. Both tiers therefore use kind's
+# local-path provisioner. The classes keep the names and binding rules of AKS,
+# so every chart above this layer is written once for both clouds.
+storageTiers:
+  premium-ssd-v2:
+    provisioner: rancher.io/local-path
+    parameters: {}
+    perClassParameters: false
+  local-nvme:
+    provisioner: rancher.io/local-path
+    parameters: {}
+    perClassParameters: false
+
+storageClasses:
+  db-pv2:
+    tier: premium-ssd-v2
+    iops: 3000
+    throughputMbps: 125
+  db-pv2-fast:
+    tier: premium-ssd-v2
+    iops: 16000
+    throughputMbps: 500
+  db-nvme:
+    tier: local-nvme
+
+# One node pool per class per zone on AKS. In kind, hack/kind-up.sh labels six
+# workers to match. tests/e2e/platform.sh fails if the two disagree.
+nodeClasses:
+  kind-pv2:
+    storageTier: premium-ssd-v2
+    storageClassName: db-pv2
+    vmSize: kind-node
+  kind-nvme:
+    storageTier: local-nvme
+    storageClassName: db-nvme
+    vmSize: kind-node
+
+namespaces:
+  dbaas-system:
+    enforce: baseline
+  monitoring:
+    enforce: privileged
+    audit: privileged
+    warn: privileged

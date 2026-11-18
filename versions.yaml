@@ -53,12 +53,18 @@ platform:
   localCsiDriver:                 # AKS local NVMe tier (Microsoft, open source)
     version: 0.4.1
     chart: oci://localcsidriver.azurecr.io/acstor/charts/local-csi-driver
+  testObjectStore:                # kind only
+    image: docker.io/chrislusf/seaweedfs:3.99
+    awsCliImage: docker.io/amazon/aws-cli:2.40.4
 
 # CRDs that `make schemas` turns into strict validation schemas. Each source
 # follows the version found at `versionFrom`, so a bump above moves the schemas
 # with it. Placeholders: {version} is that version, {minor} its first two parts.
 # Add a source when a chart starts rendering a new kind.
 crdSources:
+  - versionFrom: .platform.certManager.version
+    chart: .platform.certManager.chart
+    helmSet: installCRDs=true
   - versionFrom: .operators.mariadb.version
     urls:
       - https://raw.githubusercontent.com/mariadb-operator/mariadb-operator/{version}/deploy/crds/crds.yaml
@@ -69,7 +75,5 @@ crdSources:
     urls:
       - https://raw.githubusercontent.com/cloudnative-pg/plugin-barman-cloud/v{version}/config/crd/bases/barmancloud.cnpg.io_objectstores.yaml
   - versionFrom: .platform.kubePrometheusStack.version
-    urls:
-      - https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-{version}/charts/kube-prometheus-stack/charts/crds/crds/crd-servicemonitors.yaml
-      - https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-{version}/charts/kube-prometheus-stack/charts/crds/crds/crd-podmonitors.yaml
-      - https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-{version}/charts/kube-prometheus-stack/charts/crds/crds/crd-prometheusrules.yaml
+    chart: .platform.kubePrometheusStack.chart
+    helmSet: ""

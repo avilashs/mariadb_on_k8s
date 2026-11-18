@@ -1,0 +1,12 @@
+{{- range $name, $ns := .Values.namespaces }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $name }}
+  labels:
+    app.kubernetes.io/part-of: dbaas
+    pod-security.kubernetes.io/enforce: {{ $ns.enforce }}
+    pod-security.kubernetes.io/audit: {{ $ns.audit | default "restricted" }}
+    pod-security.kubernetes.io/warn: {{ $ns.warn | default "restricted" }}
+{{- end }}

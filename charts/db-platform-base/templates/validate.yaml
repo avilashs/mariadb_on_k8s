@@ -1,0 +1,13 @@
+{{- /*
+  Fails the render when the node-class catalogue is inconsistent. Each node class
+  must name a known storage tier and a known storage class, and that storage class
+  must belong to the same tier. A mismatch would otherwise surface much later, as
+  a database pod that cannot mount its volume.
+*/ -}}
+{{- range $name, $nc := .Values.nodeClasses }}
+{{- $_ := required (printf "nodeClass %s: storageTier %q is not in storageTiers" $name $nc.storageTier) (index $.Values.storageTiers $nc.storageTier) }}
+{{- $sc := required (printf "nodeClass %s: storageClassName %q is not in storageClasses" $name $nc.storageClassName) (index $.Values.storageClasses $nc.storageClassName) }}
+{{- if ne $sc.tier $nc.storageTier }}
+{{- fail (printf "nodeClass %s is on tier %q but its storage class %s is on tier %q" $name $nc.storageTier $nc.storageClassName $sc.tier) }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,71 @@
+# Installs the platform components for one environment (PLAN.md phase 1).
+#
+#   ENV=kind helmfile -f helmfile.d/00-platform.yaml.gotmpl sync
+#
+# Inputs:
+#   environments/$ENV/platform.yaml              required: clouds, classes, toggles
+#   environments/$ENV/kube-prometheus-stack.yaml required: overrides, may be empty
+# Pins come from versions.yaml only. Order is enforced with `needs`: the platform
+# base comes first, because it creates the priority classes and namespaces that
+# every other release uses.
+{{- $env := requiredEnv "ENV" }}
+{{- $platform := readFile (printf "../environments/%s/platform.yaml" $env) | fromYaml }}
+{{- $versions := readFile "../versions.yaml" | fromYaml }}
+{{- $platformVersions := $versions.platform }}
+{{- $base := list "default/db-platform-base" }}
+
+helmDefaults:
+  kubeContext: {{ $platform.kubeContext | quote }}
+  wait: true
+  waitForJobs: true
+  timeout: 900
+  historyMax: 5
+  createNamespace: false
+
+releases:
+  # The release record lives in default because this release creates the
+  # namespaces (dbaas-system, monitoring) that other releases use. Helm cannot
+  # store a release in a namespace that does not exist yet.
+  - name: db-platform-base
+    namespace: default
+    chart: ../charts/db-platform-base
+    values:
+      - {{ dict "storageTiers" $platform.storageTiers "storageClasses" $platform.storageClasses "nodeClasses" $platform.nodeClasses "namespaces" $platform.namespaces | toJson }}
+
+  - name: cert-manager
+    namespace: cert-manager
+    createNamespace: true
+    chart: {{ $platformVersions.certManager.chart }}
+    version: {{ $platformVersions.certManager.version | quote }}
+    needs: {{ toJson $base }}
+    values:
+      - {{ dict "crds" (dict "enabled" true) "global" (dict "priorityClassName" "dbaas-platform") "nodeSelector" (dict "pool" "system") "webhook" (dict "nodeSelector" (dict "pool" "system")) "cainjector" (dict "nodeSelector" (dict "pool" "system")) | toJson }}
+
+{{- if eq (dig "monitoring" "install" false $platform) true }}
+  - name: {{ dig "monitoring" "prometheusRelease" "kube-prometheus-stack" $platform }}
+    namespace: monitoring
+    chart: {{ $platformVersions.kubePrometheusStack.chart }}
+    version: {{ $platformVersions.kubePrometheusStack.version | quote }}
+    needs: {{ toJson $base }}
+    values:
+      - values/kube-prometheus-stack.yaml
+      - ../environments/{{ $env }}/kube-prometheus-stack.yaml
+{{- end }}
+
+{{- if eq (dig "testObjectStore" "install" false $platform) true }}
+  - name: test-object-store
+    namespace: object-store
+    createNamespace: true
+    chart: ../charts/test-object-store
+    needs: {{ toJson $base }}
+    values:
+      - {{ dict "bucket" (dig "testObjectStore" "bucket" "dbaas-test" $platform) "nodeSelector" (dict "pool" "system") "priorityClassName" "dbaas-platform" | toJson }}
+{{- end }}
+
+{{- if eq (dig "localNvme" "driver" "none" $platform) "helm" }}
+  - name: local-csi-driver
+    namespace: kube-system
+    chart: {{ $platformVersions.localCsiDriver.chart }}
+    version: {{ $platformVersions.localCsiDriver.version | quote }}
+    needs: {{ toJson $base }}
+{{- end }}

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: db-platform-base
+description: Storage classes, priority classes, namespaces and node-class validation shared by every database instance.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

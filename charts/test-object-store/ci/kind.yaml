@@ -1,0 +1,4 @@
+# Example values: the kind test object store (environments/kind/platform.yaml).
+bucket: dbaas-test
+storage:
+  size: 2Gi

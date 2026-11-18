@@ -1,0 +1,36 @@
+# kind cluster for every automated test (PLAN.md phase 1).
+#
+# Shape: one control plane, two system workers, and six database workers in two
+# emulated node classes (kind-pv2, kind-nvme), one per zone in each class.
+# Database workers are labelled and tainted by hack/kind-up.sh, which is the
+# single place that applies the node-class labels.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: dbaas
+featureGates: {}
+networking:
+  # Keep the pod and service ranges away from the session's private networks.
+  podSubnet: 10.244.0.0/16
+  serviceSubnet: 10.96.0.0/16
+kubeadmConfigPatches:
+  # Some hosts (including this sandbox) still run cgroup v1. kubelet refuses to
+  # start on cgroup v1 unless told otherwise. Harmless on cgroup v2 hosts.
+  - |
+    kind: KubeletConfiguration
+    failCgroupV1: false
+containerdConfigPatches:
+  # Nodes in a rootful kind cluster cannot change their own oom_score_adj;
+  # without this containerd fails every sandbox with "permission denied".
+  - |
+    [plugins."io.containerd.grpc.v1.cri"]
+      restrict_oom_score_adj = true
+nodes:
+  - role: control-plane
+  - role: worker
+  - role: worker
+  - role: worker
+  - role: worker
+  - role: worker
+  - role: worker
+  - role: worker
+  - role: worker

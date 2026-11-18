@@ -1,0 +1,70 @@
+suite: storage classes
+templates:
+  - templates/storageclasses.yaml
+values:
+  - ../ci/kind.yaml
+tests:
+  # Documents follow the sorted keys of storageClasses: 0 db-nvme, 1 db-pv2, 2 db-pv2-fast.
+  - it: creates one class per entry, each with WaitForFirstConsumer and Retain
+    asserts:
+      - hasDocuments:
+          count: 3
+      - isKind:
+          of: StorageClass
+        documentIndex: 0
+      - equal:
+          path: metadata.name
+          value: db-nvme
+        documentIndex: 0
+      - equal:
+          path: volumeBindingMode
+          value: WaitForFirstConsumer
+        documentIndex: 1
+      - equal:
+          path: reclaimPolicy
+          value: Retain
+        documentIndex: 2
+      - equal:
+          path: allowVolumeExpansion
+          value: true
+        documentIndex: 1
+  - it: maps iops and throughput onto Azure Disk parameters on a Premium SSD v2 tier
+    set:
+      storageTiers.premium-ssd-v2.provisioner: disk.csi.azure.com
+      storageTiers.premium-ssd-v2.parameters:
+        skuName: PremiumV2_LRS
+        cachingMode: None
+      storageTiers.premium-ssd-v2.perClassParameters: true
+    asserts:
+      - equal:
+          path: provisioner
+          value: disk.csi.azure.com
+        documentIndex: 1
+      - equal:
+          path: parameters.DiskIOPSReadWrite
+          value: "3000"
+        documentIndex: 1
+      - equal:
+          path: parameters.DiskMBpsReadWrite
+          value: "125"
+        documentIndex: 1
+      - equal:
+          path: parameters.skuName
+          value: PremiumV2_LRS
+        documentIndex: 1
+      - equal:
+          path: parameters.DiskIOPSReadWrite
+          value: "16000"
+        documentIndex: 2
+  - it: does not add Azure parameters to local-nvme classes
+    set:
+      storageTiers.local-nvme.provisioner: localdisk.csi.acstor.io
+      storageTiers.local-nvme.perClassParameters: true
+    asserts:
+      - notExists:
+          path: parameters.DiskIOPSReadWrite
+        documentIndex: 0
+      - equal:
+          path: provisioner
+          value: localdisk.csi.acstor.io
+        documentIndex: 0

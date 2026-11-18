@@ -1,0 +1,17 @@
+# TEST ONLY. Backups and binlog archives of kind test instances go here.
+# The credentials below are fixed, public test values; they protect nothing.
+image:
+  repository: docker.io/chrislusf/seaweedfs
+  tag: "3.99"
+awsCli:
+  image: docker.io/amazon/aws-cli:2.40.4
+bucket: dbaas-test
+accessKey: dbaas-test-access
+secretKey: dbaas-test-secret
+port: 8333
+storage:
+  # Ephemeral in kind: test data does not need to outlive the cluster.
+  size: 20Gi
+nodeSelector:
+  pool: system
+priorityClassName: dbaas-platform

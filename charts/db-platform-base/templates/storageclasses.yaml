@@ -1,0 +1,26 @@
+{{- range $name, $sc := .Values.storageClasses }}
+{{- $tier := index $.Values.storageTiers $sc.tier }}
+{{- $params := deepCopy ($tier.parameters | default dict) }}
+{{- if $tier.perClassParameters }}
+{{- if $sc.iops }}{{- $_ := set $params "DiskIOPSReadWrite" (toString $sc.iops) }}{{- end }}
+{{- if $sc.throughputMbps }}{{- $_ := set $params "DiskMBpsReadWrite" (toString $sc.throughputMbps) }}{{- end }}
+{{- end }}
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ $name }}
+  labels:
+    app.kubernetes.io/part-of: dbaas
+    dbaas.local/storage-tier: {{ $sc.tier | quote }}
+provisioner: {{ $tier.provisioner | quote }}
+{{- with $params }}
+parameters:
+  {{- range $key, $value := . }}
+  {{ $key }}: {{ toString $value | quote }}
+  {{- end }}
+{{- end }}
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+{{- end }}

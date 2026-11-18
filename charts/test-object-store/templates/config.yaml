@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: test-object-store-credentials
+  labels:
+    app.kubernetes.io/name: test-object-store
+    app.kubernetes.io/part-of: dbaas
+type: Opaque
+stringData:
+  access-key-id: {{ .Values.accessKey | quote }}
+  secret-access-key: {{ .Values.secretKey | quote }}
+  s3.json: |
+    {
+      "identities": [
+        {
+          "name": "dbaas-test",
+          "credentials": [
+            { "accessKey": {{ .Values.accessKey | quote }}, "secretKey": {{ .Values.secretKey | quote }} }
+          ],
+          "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+        }
+      ]
+    }

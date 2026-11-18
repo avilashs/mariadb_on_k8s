@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "db-platform-base values",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["storageTiers", "storageClasses", "nodeClasses"],
+  "properties": {
+    "storageTiers": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["provisioner"],
+        "properties": {
+          "provisioner": {"type": "string", "minLength": 1},
+          "parameters": {"type": "object", "additionalProperties": {"type": "string"}},
+          "perClassParameters": {"type": "boolean"}
+        }
+      }
+    },
+    "storageClasses": {
+      "type": "object",
+      "propertyNames": {"pattern": "^[a-z][a-z0-9-]{1,61}[a-z0-9]$"},
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tier"],
+        "properties": {
+          "tier": {"type": "string", "minLength": 1},
+          "iops": {"type": "integer", "minimum": 1},
+          "throughputMbps": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "nodeClasses": {
+      "type": "object",
+      "propertyNames": {"pattern": "^[a-z][a-z0-9-]{1,61}[a-z0-9]$"},
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["storageTier", "storageClassName"],
+        "properties": {
+          "storageTier": {"type": "string", "minLength": 1},
+          "storageClassName": {"type": "string", "minLength": 1},
+          "vmSize": {"type": "string"},
+          "nvmeCapacityGi": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "priorityClasses": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "value"],
+        "properties": {
+          "name": {"type": "string"},
+          "value": {"type": "integer"}
+        }
+      }
+    },
+    "namespaces": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["enforce"],
+        "properties": {
+          "enforce": {"enum": ["privileged", "baseline", "restricted"]},
+          "audit": {"enum": ["privileged", "baseline", "restricted"]},
+          "warn": {"enum": ["privileged", "baseline", "restricted"]}
+        }
+      }
+    }
+  }
+}

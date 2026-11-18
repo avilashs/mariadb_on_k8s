@@ -1,0 +1,28 @@
+suite: node class catalogue
+templates:
+  - templates/validate.yaml
+values:
+  - ../ci/kind.yaml
+tests:
+  - it: accepts a consistent catalogue
+    asserts:
+      - hasDocuments:
+          count: 0
+  - it: rejects a node class whose storage class is on another tier
+    set:
+      nodeClasses.kind-pv2.storageClassName: db-nvme
+    asserts:
+      - failedTemplate:
+          errorMessage: "nodeClass kind-pv2 is on tier \"premium-ssd-v2\" but its storage class db-nvme is on tier \"local-nvme\""
+  - it: rejects a node class with an unknown storage tier
+    set:
+      nodeClasses.kind-pv2.storageTier: premium-ssd-v3
+    asserts:
+      - failedTemplate:
+          errorMessage: "nodeClass kind-pv2: storageTier \"premium-ssd-v3\" is not in storageTiers"
+  - it: rejects a node class with an unknown storage class
+    set:
+      nodeClasses.kind-pv2.storageClassName: db-missing
+    asserts:
+      - failedTemplate:
+          errorMessage: "nodeClass kind-pv2: storageClassName \"db-missing\" is not in storageClasses"

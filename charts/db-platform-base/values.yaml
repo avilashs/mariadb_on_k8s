@@ -1,0 +1,44 @@
+# Filled from environments/<env>/platform.yaml by helmfile.d/00-platform.yaml.gotmpl.
+# The defaults describe nothing real; every environment must provide its own.
+
+# Storage tiers: which provisioner backs each tier, and the parameters it takes.
+# perClassParameters: map each storage class's iops and throughputMbps onto the
+# Azure Disk CSI parameters DiskIOPSReadWrite and DiskMBpsReadWrite.
+storageTiers: {}
+#  premium-ssd-v2:
+#    provisioner: disk.csi.azure.com
+#    parameters: { skuName: PremiumV2_LRS, cachingMode: None }
+#    perClassParameters: true
+#  local-nvme:
+#    provisioner: localdisk.csi.acstor.io
+#    parameters: {}
+
+# Storage classes databases can claim. tier must name an entry of storageTiers.
+storageClasses: {}
+#  db-pv2: { tier: premium-ssd-v2, iops: 3000, throughputMbps: 125 }
+#  db-nvme: { tier: local-nvme }
+
+# Node classes: one VM size and one storage tier, realised as node pools per zone.
+# storageClassName is the default class for instances on this node class; it must
+# belong to the same tier.
+nodeClasses: {}
+#  pv2-e8:
+#    storageTier: premium-ssd-v2
+#    storageClassName: db-pv2
+#    vmSize: Standard_E8ads_v6
+
+priorityClasses:
+  database:
+    name: dbaas-database
+    value: 1000000
+  platform:
+    name: dbaas-platform
+    value: 900000
+
+# Namespaces the platform owns. enforce is the pod security level of the namespace.
+# monitoring is privileged because node-exporter needs host namespaces. audit and
+# warn default to restricted; a privileged namespace sets them to privileged so that
+# its expected violations do not warn on every apply.
+namespaces:
+  dbaas-system: {enforce: baseline}
+  monitoring: {enforce: privileged, audit: privileged, warn: privileged}

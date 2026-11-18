@@ -1,0 +1,54 @@
+# Environment-independent settings for kube-prometheus-stack (PLAN.md phase 1).
+# Environment overrides live in environments/<env>/kube-prometheus-stack.yaml.
+#
+# Platform components run on the system pool with the platform priority class.
+# Nothing here tolerates the database taint, so monitoring never lands on
+# database nodes.
+prometheus:
+  prometheusSpec:
+    # Pick up ServiceMonitors, PodMonitors, PrometheusRules and ScrapeConfigs
+    # from every namespace, not only from the release's own.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    scrapeConfigSelectorNilUsesHelmValues: false
+    nodeSelector:
+      pool: system
+    priorityClassName: dbaas-platform
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        memory: 2Gi
+alertmanager:
+  alertmanagerSpec:
+    nodeSelector:
+      pool: system
+    priorityClassName: dbaas-platform
+grafana:
+  nodeSelector:
+    pool: system
+  priorityClassName: dbaas-platform
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: false
+prometheusOperator:
+  nodeSelector:
+    pool: system
+  priorityClassName: dbaas-platform
+kube-state-metrics:
+  nodeSelector:
+    pool: system
+  priorityClassName: dbaas-platform
+prometheus-node-exporter:
+  # Explicitly empty: the DaemonSet must not run on the tainted database pool.
+  tolerations: []
+  priorityClassName: dbaas-platform

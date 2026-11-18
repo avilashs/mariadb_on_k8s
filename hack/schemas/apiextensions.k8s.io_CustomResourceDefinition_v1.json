@@ -1,0 +1,84 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CustomResourceDefinition apiextensions.k8s.io/v1",
+  "description": "Hand-written strict schema for the CRD object itself. Upstream Kubernetes ships no schema for it at the pinned version, and kubeconform must not skip it. Fields follow the apiextensions.k8s.io/v1 API; the schema bodies of each version are left open because they are arbitrary OpenAPI.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": {"const": "apiextensions.k8s.io/v1"},
+    "kind": {"const": "CustomResourceDefinition"},
+    "metadata": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string"},
+        "namespace": {"type": "string"},
+        "labels": {"type": "object", "additionalProperties": {"type": "string"}},
+        "annotations": {"type": "object", "additionalProperties": {"type": "string"}}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["group", "names", "scope", "versions"],
+      "properties": {
+        "group": {"type": "string", "minLength": 1},
+        "scope": {"enum": ["Namespaced", "Cluster"]},
+        "names": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["plural", "kind"],
+          "properties": {
+            "plural": {"type": "string", "minLength": 1},
+            "singular": {"type": "string"},
+            "kind": {"type": "string", "minLength": 1},
+            "listKind": {"type": "string"},
+            "shortNames": {"type": "array", "items": {"type": "string"}},
+            "categories": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "conversion": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["strategy"],
+          "properties": {
+            "strategy": {"enum": ["None", "Webhook"]},
+            "webhook": {"type": "object"}
+          }
+        },
+        "versions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "served", "storage"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1},
+              "served": {"type": "boolean"},
+              "storage": {"type": "boolean"},
+              "deprecated": {"type": "boolean"},
+              "deprecationWarning": {"type": "string"},
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {"openAPIV3Schema": {"type": "object"}}
+              },
+              "subresources": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "status": {"type": "object"},
+                  "scale": {"type": "object"}
+                }
+              },
+              "additionalPrinterColumns": {"type": "array", "items": {"type": "object"}},
+              "selectableFields": {"type": "array", "items": {"type": "object"}}
+            }
+          }
+        }
+      }
+    },
+    "status": {"type": "object"}
+  }
+}

@@ -1,0 +1,16 @@
+# kind-only overrides for the monitoring stack, on top of helmfile.d/values/.
+# These components bind to localhost inside kind, so their targets could never
+# be scraped. Their absence is expected here, not a failure.
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeEtcd:
+  enabled: false
+kubeProxy:
+  enabled: false
+prometheus:
+  prometheusSpec:
+    retention: 1d
+    retentionSize: 4GB
+    storageSpec: null

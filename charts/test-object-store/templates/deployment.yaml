@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-object-store
+  labels:
+    app.kubernetes.io/name: test-object-store
+    app.kubernetes.io/part-of: dbaas
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: test-object-store
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: test-object-store
+        app.kubernetes.io/part-of: dbaas
+    spec:
+      priorityClassName: {{ .Values.priorityClassName }}
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: seaweedfs
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          args:
+            - server
+            - -dir=/data
+            - -s3
+            - -s3.port={{ .Values.port }}
+            - -s3.config=/etc/object-store/s3.json
+            - -ip.bind=0.0.0.0
+          ports:
+            - name: s3
+              containerPort: {{ .Values.port }}
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: {{ .Values.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: {{ .Values.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: config
+              mountPath: /etc/object-store
+              readOnly: true
+      volumes:
+        - name: data
+          emptyDir:
+            sizeLimit: {{ .Values.storage.size }}
+        - name: config
+          secret:
+            secretName: test-object-store-credentials
+            items:
+              - key: s3.json
+                path: s3.json

@@ -1,0 +1,13 @@
+{{- range $key, $pc := .Values.priorityClasses }}
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: {{ $pc.name }}
+  labels:
+    app.kubernetes.io/part-of: dbaas
+value: {{ $pc.value | int64 }}
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: "{{ $key }} workloads of the database platform. Not the cluster default."
+{{- end }}

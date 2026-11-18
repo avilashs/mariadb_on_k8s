@@ -1,0 +1,23 @@
+# Example values: the kind environment, as environments/kind/platform.yaml gives them.
+storageTiers:
+  premium-ssd-v2:
+    provisioner: rancher.io/local-path
+    parameters: {}
+    perClassParameters: false
+  local-nvme:
+    provisioner: rancher.io/local-path
+    parameters: {}
+storageClasses:
+  db-pv2: {tier: premium-ssd-v2, iops: 3000, throughputMbps: 125}
+  db-pv2-fast: {tier: premium-ssd-v2, iops: 16000, throughputMbps: 500}
+  db-nvme: {tier: local-nvme}
+nodeClasses:
+  kind-pv2:
+    storageTier: premium-ssd-v2
+    storageClassName: db-pv2
+  kind-nvme:
+    storageTier: local-nvme
+    storageClassName: db-nvme
+namespaces:
+  dbaas-system: {enforce: baseline}
+  monitoring: {enforce: privileged, audit: privileged, warn: privileged}

@@ -1,0 +1,65 @@
+# Creates the test bucket once. Re-applying an identical Job changes nothing,
+# and the command is idempotent, so the Job never needs to be recreated.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: create-test-bucket
+  labels:
+    app.kubernetes.io/name: test-object-store
+    app.kubernetes.io/part-of: dbaas
+spec:
+  backoffLimit: 30
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: test-object-store-bucket
+    spec:
+      restartPolicy: OnFailure
+      priorityClassName: {{ .Values.priorityClassName }}
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: create-bucket
+          image: {{ .Values.awsCli.image | quote }}
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: test-object-store-credentials
+                  key: access-key-id
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: test-object-store-credentials
+                  key: secret-access-key
+            - name: AWS_DEFAULT_REGION
+              value: us-east-1
+            - name: ENDPOINT
+              value: "http://test-object-store.{{ .Release.Namespace }}.svc:{{ .Values.port }}"
+            - name: BUCKET
+              value: {{ .Values.bucket | quote }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              until aws --endpoint-url "$ENDPOINT" s3api list-buckets >/dev/null 2>&1; do sleep 2; done
+              aws --endpoint-url "$ENDPOINT" s3api head-bucket --bucket "$BUCKET" 2>/dev/null ||
+                aws --endpoint-url "$ENDPOINT" s3api create-bucket --bucket "$BUCKET"
+              aws --endpoint-url "$ENDPOINT" s3api head-bucket --bucket "$BUCKET"
+              echo "bucket $BUCKET ready"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]

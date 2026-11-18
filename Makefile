@@ -32,6 +32,7 @@ RULE_FILES = $(wildcard $(ROOT)/alerts/rules/*.yaml)
 RULE_TESTS = $(wildcard $(ROOT)/alerts/tests/*.yaml)
 CHART_TESTS = $(patsubst %/tests,%,$(wildcard $(ROOT)/charts/*/tests))
 GO_FILES = $(shell find $(ROOT)/tools -name '*.go' 2>/dev/null | head -n1)
+E2E_SUITES = $(patsubst $(ROOT)/tests/e2e/%.sh,%,$(filter-out %/lib.sh,$(wildcard $(ROOT)/tests/e2e/*.sh)))
 
 ##@ General
 
@@ -61,7 +62,7 @@ schemas: ## Generate strict JSON Schemas from the pinned operator CRDs
 verify: lint unit ## Everything that needs no cluster: lint + unit
 
 .PHONY: lint
-lint: lint-yaml lint-shell lint-charts lint-rules lint-go ## All static checks
+lint: lint-yaml lint-shell lint-charts lint-platform lint-rules lint-go ## All static checks
 
 .PHONY: lint-yaml
 lint-yaml:
@@ -76,6 +77,12 @@ lint-shell:
 .PHONY: lint-charts
 lint-charts: schemas
 	@$(ROOT)/hack/lint-charts.sh
+
+.PHONY: lint-platform
+lint-platform: schemas ## Render the platform for ENV and validate every object (needs network for charts)
+	@echo "==> render and validate the platform for ENV=$(ENV)"
+	@cd $(ROOT) && ENV=$(ENV) helmfile -f helmfile.d/00-platform.yaml.gotmpl template --skip-deps >$(CACHE)/platform-rendered.yaml
+	@$(ROOT)/hack/kubeconform.sh -summary $(CACHE)/platform-rendered.yaml
 
 .PHONY: lint-rules
 lint-rules:
@@ -96,11 +103,15 @@ else
 endif
 
 .PHONY: unit
-unit: unit-tooling unit-charts unit-rules unit-go ## All unit tests
+unit: unit-tooling unit-platform unit-charts unit-rules unit-go ## All unit tests
 
 .PHONY: unit-tooling
 unit-tooling: schemas
 	@$(ROOT)/hack/selftest.sh
+
+.PHONY: unit-platform
+unit-platform: ## Shell and chart checks for platform scripts (no cluster)
+	@cd $(ROOT) && shellcheck --external-sources hack/*.sh tests/e2e/*.sh
 
 .PHONY: unit-charts
 unit-charts:
@@ -129,7 +140,19 @@ else
 	@cd $(ROOT)/tools && go test ./...
 endif
 
-##@ Cluster and instances (arrive with later phases of PLAN.md)
+##@ Cluster and platform
+
+.PHONY: kind-up
+kind-up: ## Create the kind test cluster with its node classes (idempotent)
+	@$(ROOT)/hack/kind-up.sh
+
+.PHONY: kind-down
+kind-down: ## Delete the kind test cluster
+	@$(ROOT)/hack/kind-down.sh
+
+.PHONY: platform-up
+platform-up: schemas ## Install or update the platform components for ENV (idempotent)
+	@ENV=$(ENV) $(ROOT)/hack/platform-up.sh
 
 # A target that is not built yet fails loudly instead of pretending to work.
 define not_yet
@@ -140,18 +163,6 @@ endef
 images: ## Build the db-canary and drain-guard images (phase 6)
 	$(call not_yet,6)
 
-.PHONY: kind-up
-kind-up: ## Create the kind test cluster (phase 1)
-	$(call not_yet,1)
-
-.PHONY: kind-down
-kind-down: ## Delete the kind test cluster (phase 1)
-	$(call not_yet,1)
-
-.PHONY: platform-up
-platform-up: ## Install the platform components for ENV (phase 1)
-	$(call not_yet,1)
-
 .PHONY: instances-up
 instances-up: ## Sync every instance of ENV (phase 4)
 	$(call not_yet,4)
@@ -160,12 +171,14 @@ instances-up: ## Sync every instance of ENV (phase 4)
 instance-new: ## Scaffold an instance: NAME=<name> SIZE=<size> NODE_CLASS=<class> (phase 4)
 	$(call not_yet,4)
 
-.PHONY: e2e
-e2e: ## Run every e2e suite for ENGINE (phase 3 onwards)
-	$(call not_yet,3)
+##@ End-to-end suites
 
-e2e-%: ## Run one e2e suite, e.g. make e2e-drain (phase 3 onwards)
-	$(call not_yet,3)
+.PHONY: e2e
+e2e: $(addprefix e2e-,$(E2E_SUITES)) ## Run every e2e suite in tests/e2e/ for ENV and ENGINE
+
+e2e-%: ## Run one suite, e.g. make e2e-platform (suites live in tests/e2e/)
+	@test -f $(ROOT)/tests/e2e/$*.sh || { echo "ERROR: no e2e suite '$*' (tests/e2e/$*.sh)" >&2; exit 1; }
+	@ENV=$(ENV) ENGINE=$(ENGINE) $(ROOT)/tests/e2e/$*.sh
 
 ##@ Housekeeping
 
