@@ -61,6 +61,7 @@ instead of failing in the cluster.
 {{- $preset := fromYaml (include "dbaas.preset" .) -}}
 {{- $baseline := dict
     "binlog_format" "ROW"
+    "log_slave_updates" "ON"
     "innodb_flush_log_at_trx_commit" "1"
     "innodb_flush_method" "O_DIRECT"
     "innodb_buffer_pool_dump_at_shutdown" "ON"

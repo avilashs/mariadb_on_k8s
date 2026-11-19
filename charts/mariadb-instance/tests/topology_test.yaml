@@ -83,3 +83,6 @@ tests:
       - matchRegex:
           path: spec.myCnf
           pattern: "binlog_format=ROW"
+      - matchRegex:
+          path: spec.myCnf
+          pattern: "log_slave_updates=ON"
