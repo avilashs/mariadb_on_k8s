@@ -236,3 +236,25 @@ func TestSwitchoverIsStalledOnlyPastTheTimeout(t *testing.T) {
 		t.Error("a switchover never seen pending is not stalled")
 	}
 }
+
+func TestAbortedTargetsLeaveTheCandidates(t *testing.T) {
+	pods := []PodState{{Name: "alpha-0", Index: 0}, {Name: "alpha-1", Index: 1}, {Name: "alpha-2", Index: 2}}
+	kept := dropExcluded(pods, map[int]bool{0: true})
+	if len(kept) != 2 || kept[0].Index != 1 || kept[1].Index != 2 {
+		t.Fatalf("the excluded replica must leave the candidates, got %+v", kept)
+	}
+	if len(dropExcluded(pods, nil)) != 3 {
+		t.Fatal("with nothing excluded every pod stays")
+	}
+}
+
+func TestWithoutAnyCandidateTheDrainBlocks(t *testing.T) {
+	drainingA := nodeA
+	drainingA.Unschedulable = true
+	s := instance(0)
+	s.Pods = dropExcluded(s.Pods, map[int]bool{1: true, 2: true})
+	plan := planEvacuation(s, nodesOf(drainingA, nodeB, nodeC), keys, t0, time.Time{})
+	if plan.Action != actionBlocked {
+		t.Fatalf("with every replica excluded the drain must wait, got %+v", plan)
+	}
+}

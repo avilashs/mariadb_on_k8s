@@ -21,6 +21,25 @@ func switchoverStalled(since, now time.Time, timeout time.Duration) bool {
 	return !since.IsZero() && now.Sub(since) >= timeout
 }
 
+// abortedTargetTTL is how long a replica whose switchover the guard aborted is left out of
+// the candidates. Without it the guard picks the same replica again a minute later, and the
+// primary goes read-only for two minutes per cycle while the drain never completes.
+const abortedTargetTTL = 10 * time.Minute
+
+// dropExcluded returns the pods whose index is not excluded.
+func dropExcluded(pods []PodState, excluded map[int]bool) []PodState {
+	if len(excluded) == 0 {
+		return pods
+	}
+	out := make([]PodState, 0, len(pods))
+	for _, p := range pods {
+		if !excluded[p.Index] {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // evacuationCooldown is how long an evacuation request suppresses another one for the same
 // instance (PLAN.md phase 7, step 2.1).
 const evacuationCooldown = 60 * time.Second

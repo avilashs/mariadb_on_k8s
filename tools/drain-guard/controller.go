@@ -33,6 +33,24 @@ type Guard struct {
 	lastRequested map[string]time.Time
 	blocked       map[string]bool
 	pendingSince  map[string]time.Time // when a switchover was first seen pending
+	abortedTarget map[string]abortedAt // replicas whose switchover the guard aborted
+}
+
+// abortedAt records one aborted target and when it was aborted.
+type abortedAt struct {
+	index int
+	at    time.Time
+}
+
+// excludedTargets returns the replica indexes to leave out of the candidates of an instance.
+func (g *Guard) excludedTargets(k string) map[int]bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	out := map[int]bool{}
+	if a, ok := g.abortedTarget[k]; ok && g.Now().Sub(a.at) < abortedTargetTTL {
+		out[a.index] = true
+	}
+	return out
 }
 
 // NewGuard returns a guard with empty state.
@@ -40,7 +58,7 @@ func NewGuard(c client.Client, r client.Reader, drainKeys map[string]bool, m *gu
 	return &Guard{
 		Client: c, Reader: r, DrainKeys: drainKeys, Metrics: m, Recorder: rec,
 		Now: time.Now, lastRequested: map[string]time.Time{}, blocked: map[string]bool{},
-		pendingSince: map[string]time.Time{},
+		pendingSince: map[string]time.Time{}, abortedTarget: map[string]abortedAt{},
 	}
 }
 
@@ -148,6 +166,7 @@ func (g *Guard) Reconcile(ctx context.Context) error {
 		if err := g.abortStalledSwitchover(ctx, s, obj); err != nil {
 			return err
 		}
+		s.Pods = dropExcluded(s.Pods, g.excludedTargets(key(s.Namespace, s.Name)))
 		plan := planEvacuation(*s, nodes, g.DrainKeys, g.Now(), g.lastRequestedAt(s))
 		if err := g.act(ctx, s, obj, plan); err != nil {
 			return err
@@ -187,6 +206,7 @@ func (g *Guard) abortStalledSwitchover(ctx context.Context, s *InstanceState, ob
 	g.mu.Lock()
 	delete(g.pendingSince, k)
 	g.lastRequested[k] = g.Now()
+	g.abortedTarget[k] = abortedAt{index: s.DesiredPrimary, at: g.Now()}
 	g.mu.Unlock()
 	g.Recorder.Eventf(runtime.Object(obj), corev1.EventTypeWarning, "SwitchoverAborted",
 		"the switchover to pod index %d had been pending for %s: moving the primary back to %d; the drain waits",
@@ -260,6 +280,7 @@ func (g *Guard) Evacuate(ctx context.Context, ns, name string) (EvacuationPlan, 
 	if err != nil {
 		return EvacuationPlan{}, err
 	}
+	s.Pods = dropExcluded(s.Pods, g.excludedTargets(key(s.Namespace, s.Name)))
 	plan := planEvacuationForced(*s, nodes, g.DrainKeys, g.Now(), g.lastRequestedAt(s))
 	if err := g.act(ctx, s, obj, plan); err != nil {
 		return plan, err
