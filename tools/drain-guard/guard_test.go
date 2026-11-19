@@ -248,6 +248,41 @@ func TestAbortedTargetsLeaveTheCandidates(t *testing.T) {
 	}
 }
 
+func TestAbortedTargetComesFromTheObjectNotFromMemory(t *testing.T) {
+	// The annotation is what every replica reads, so an abort made by one replica holds for
+	// the webhook served by another.
+	idx, at := parseAborted("0@" + t0.Add(-time.Minute).UTC().Format(time.RFC3339))
+	if idx != 0 || !at.Equal(t0.Add(-time.Minute).Truncate(time.Second)) {
+		t.Fatalf("parseAborted: got %d at %s", idx, at)
+	}
+	s := instance(0)
+	s.AbortedTarget, s.AbortedAt = idx, at
+	if !s.excluded(t0)[0] {
+		t.Fatal("a replica aborted a minute ago must be excluded")
+	}
+	if s.excluded(at.Add(abortedTargetTTL))[0] {
+		t.Fatal("after the TTL the replica is a candidate again")
+	}
+	// Primary 2 on a draining node; replica 0 was aborted, so the guard must pick replica 1.
+	drainingC := nodeC
+	drainingC.Unschedulable = true
+	s = instance(2)
+	s.AbortedTarget, s.AbortedAt = idx, at
+	s.Pods = dropExcluded(s.Pods, s.excluded(t0))
+	plan := planEvacuation(s, nodesOf(nodeA, nodeB, drainingC), keys, t0, time.Time{})
+	if plan.Action != actionSwitch || plan.TargetIndex != 1 {
+		t.Fatalf("the aborted replica 0 must not be picked, want switch to 1, got %+v", plan)
+	}
+}
+
+func TestParseAbortedRejectsMalformedValues(t *testing.T) {
+	for _, v := range []string{"", "0", "x@2026-11-19T00:00:00Z", "-1@2026-11-19T00:00:00Z", "1@yesterday"} {
+		if idx, _ := parseAborted(v); idx != -1 {
+			t.Errorf("parseAborted(%q) = %d, want -1", v, idx)
+		}
+	}
+}
+
 func TestWithoutAnyCandidateTheDrainBlocks(t *testing.T) {
 	drainingA := nodeA
 	drainingA.Unschedulable = true

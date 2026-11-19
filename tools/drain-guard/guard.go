@@ -5,10 +5,34 @@ package main
 
 import (
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/version"
 )
+
+// abortedAnnotation records, on the MariaDB, the replica whose switchover the guard aborted
+// and when, as "<index>@<RFC3339>". It lives on the object, not in one replica's memory: the
+// webhook may be served by a replica that did not make the abort, and it must still see it.
+const abortedAnnotation = "dbaas.local/drain-guard-aborted"
+
+// parseAborted reads abortedAnnotation. It returns index -1 when the value is missing or malformed.
+func parseAborted(v string) (int, time.Time) {
+	idx, ts, ok := strings.Cut(v, "@")
+	if !ok {
+		return -1, time.Time{}
+	}
+	n, err := strconv.Atoi(idx)
+	if err != nil || n < 0 {
+		return -1, time.Time{}
+	}
+	at, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		return -1, time.Time{}
+	}
+	return n, at
+}
 
 // switchoverTimeout bounds how long a planned switchover may stay pending. The operator
 // makes the primary read-only while it waits for the replicas to catch up; an unbounded wait
@@ -85,7 +109,21 @@ type InstanceState struct {
 	DesiredPrimary int
 	// SwitchoverFailing is true while the PrimarySwitched condition is False.
 	SwitchoverFailing bool
-	Pods              []PodState
+	// AbortedTarget is the replica index whose switchover the guard aborted, and AbortedAt when;
+	// AbortedTarget is -1 when there is none.
+	AbortedTarget int
+	AbortedAt     time.Time
+	Pods          []PodState
+}
+
+// excluded returns the replica indexes that must not be chosen at 'now': a replica whose
+// switchover was aborted stays out for abortedTargetTTL.
+func (s InstanceState) excluded(now time.Time) map[int]bool {
+	out := map[int]bool{}
+	if s.AbortedTarget >= 0 && now.Sub(s.AbortedAt) < abortedTargetTTL {
+		out[s.AbortedTarget] = true
+	}
+	return out
 }
 
 // switchoverPending is true while the operator has not reached the desired primary.
