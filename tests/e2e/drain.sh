@@ -264,6 +264,22 @@ case_d_no_candidate_blocks() {
   wait_ready "${inst}" 3
 }
 
+# guard_serving: the drain-guard Service has ready endpoints. The guard's webhook is fail-closed,
+# so a drain that calls it before a replica serves fails with a dial error, not a refusal.
+guard_serving() {
+  local i ready
+  for _ in $(seq 1 60); do
+    ready="$(kc -n dbaas-system get endpointslices -l kubernetes.io/service-name=drain-guard -o json |
+      jq '[.items[].endpoints[]? | select(.conditions.ready == true)] | length')"
+    if [[ "${ready}" -ge 1 ]]; then
+      sleep 10 # kube-proxy programs the rules after the endpoints
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
 case_e_guard_down_refuses_drains() {
   local inst="$1" node before after
   canary_reset "${inst}"
@@ -278,6 +294,7 @@ case_e_guard_down_refuses_drains() {
   after="$(for p in $(pods_of "${inst}"); do kc -n "db-${inst}" get pod "${p}" -o jsonpath='{.metadata.uid}'; echo; done | sort | tr '\n' ' ')"
   kc -n dbaas-system scale deployment drain-guard --replicas=2 >/dev/null
   kc -n dbaas-system rollout status deployment drain-guard --timeout=300s >/dev/null
+  guard_serving || { echo "the guard's webhook has no ready endpoint"; return 1; }
   [[ "${before}" == "${after}" ]] || { echo "a database pod was deleted while the guard was down"; return 1; }
   drain "${node}" 900 || { echo "a new drain did not finish after the guard came back"; cat "${WORK}/drain-${node}.log"; return 1; }
   kc uncordon "${node}" >/dev/null
