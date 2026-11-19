@@ -83,6 +83,15 @@ check_replica_reseeds_after_pod_and_volume_loss() {
     { echo "${replica} rejoined without the data written before its loss"; return 1; }
 }
 
+# restored_marker <restored-instance> <pod> <label>: how many rows carry the label. A restored instance
+# lives in the source's namespace (db-${INST}), not in db-<its own name> as the lib helpers assume.
+restored_marker() {
+  local password
+  password="$(kc -n "${NS}" get secret "$1-root" -o jsonpath='{.data.password}' | base64 -d)"
+  kc -n "${NS}" exec "$2" -c mariadb -- mariadb --ssl -uroot -p"${password}" -N -B \
+    -e "SELECT COUNT(*) FROM dbaas_marker.markers WHERE label = '$3'" 2>/dev/null
+}
+
 check_point_in_time_restore() {
   local target restored="${INST}-pitr" primary
   marker_write "${INST}" "$(primary_pod "${INST}")" "A-${INST}-${RUN_ID}" >/dev/null
@@ -94,9 +103,10 @@ check_point_in_time_restore() {
   RESTORES+=("${NS#db-}:${restored}")
   KUBE_CONTEXT="${CONTEXT}" "${ROOT}/scripts/restore-instance.sh" "${INST}" "${target}" "${restored}" >/dev/null ||
     { echo "restore of ${INST} to ${target} failed"; return 1; }
-  primary="$(primary_pod "${restored}")"
-  marker_present "${restored}" "${primary}" "A-${INST}-${RUN_ID}" || { echo "restored instance lacks A (before ${target})"; return 1; }
-  if marker_present "${restored}" "${primary}" "B-${INST}-${RUN_ID}"; then
+  primary="$(kc -n "${NS}" get mariadb "${restored}" -o jsonpath='{.status.currentPrimary}')"
+  [[ "$(restored_marker "${restored}" "${primary}" "A-${INST}-${RUN_ID}")" == "1" ]] ||
+    { echo "restored instance lacks A (before ${target})"; return 1; }
+  if [[ "$(restored_marker "${restored}" "${primary}" "B-${INST}-${RUN_ID}")" == "1" ]]; then
     echo "restored instance has B (written after ${target})"
     return 1
   fi

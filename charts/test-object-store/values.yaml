@@ -17,3 +17,7 @@ storage:
 nodeSelector:
   pool: system
 priorityClassName: dbaas-platform
+
+# Free space below which the store stops accepting writes (bytes, e.g. 500MiB). Absolute on purpose: the
+# default is 1% of the host disk, which is a very different number on different machines.
+minFreeSpace: 500MiB

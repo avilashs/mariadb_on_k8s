@@ -40,6 +40,10 @@ spec:
             # exhausted the sandbox disk (PLAN.md phase 5 run).
             - -master.volumePreallocate=false
             - -master.volumeSizeLimitMB={{ .Values.volumeSizeLimitMB }}
+            # SeaweedFS refuses new volumes below 1% free disk, as a percentage of the HOST disk. On a large
+            # sandbox disk that is gigabytes more than the allowance leaves, and writes failed with "No more
+            # free space left" long before the disk was full. An absolute floor does not depend on its size.
+            - -volume.minFreeSpace={{ .Values.minFreeSpace }}
           ports:
             - name: s3
               containerPort: {{ .Values.port }}
