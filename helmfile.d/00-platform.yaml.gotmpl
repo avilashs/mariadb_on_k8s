@@ -40,7 +40,7 @@ releases:
     version: {{ $platformVersions.certManager.version | quote }}
     needs: {{ toJson $base }}
     values:
-      - {{ dict "crds" (dict "enabled" true) "global" (dict "priorityClassName" "dbaas-platform") "nodeSelector" (dict "pool" "system") "webhook" (dict "nodeSelector" (dict "pool" "system")) "cainjector" (dict "nodeSelector" (dict "pool" "system")) | toJson }}
+      - {{ dict "crds" (dict "enabled" true) "global" (dict "priorityClassName" "dbaas-platform" "commonLabels" (ternary (dict "admissions.enforcer/disabled" "true") (dict) (eq (dig "cloud" "" $platform) "aks"))) "nodeSelector" (dict "pool" "system") "webhook" (dict "nodeSelector" (dict "pool" "system")) "cainjector" (dict "nodeSelector" (dict "pool" "system")) | toJson }}
 
   - name: mariadb-operator-crds
     namespace: mariadb-system

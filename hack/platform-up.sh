@@ -43,8 +43,10 @@ ensure_grafana_admin_secret() {
     --from-literal=admin-password="$(openssl rand -base64 36 | tr -dc 'A-Za-z0-9' | cut -c1-32)" >/dev/null
 }
 
+# HELM_EXTRA_ARGS: extra helm flags for every release, e.g. --force-conflicts after another
+# controller (the AKS admissions enforcer) took ownership of a field the chart also sets.
 helmfile_sync() {
-  (cd "${ROOT}" && helmfile -f helmfile.d/00-platform.yaml.gotmpl sync --skip-deps "$@")
+  (cd "${ROOT}" && helmfile -f helmfile.d/00-platform.yaml.gotmpl sync --skip-deps ${HELM_EXTRA_ARGS:+--args "${HELM_EXTRA_ARGS}"} "$@")
 }
 
 log "syncing the platform base for ENV=${ENV} into context ${context}"
