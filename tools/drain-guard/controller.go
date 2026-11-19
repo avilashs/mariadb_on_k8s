@@ -106,6 +106,7 @@ func (g *Guard) loadInstance(ctx context.Context, ns, name string) (*InstanceSta
 	}); err != nil {
 		return nil, nil, err
 	}
+	readyReplicas := 0
 	for _, p := range pods.Items {
 		idx := indexOf(p.Name, name)
 		if v, err := strconv.Atoi(p.Labels["apps.kubernetes.io/pod-index"]); err == nil {
@@ -115,6 +116,15 @@ func (g *Guard) loadInstance(ctx context.Context, ns, name string) (*InstanceSta
 			continue
 		}
 		s.Pods = append(s.Pods, PodState{Name: p.Name, Index: idx, Ready: podReady(&p), NodeName: p.Spec.NodeName})
+		if idx != s.CurrentPrimary && podReady(&p) {
+			readyReplicas++
+		}
+	}
+	// spec.replicas counts the primary too. A replica with no pod at all is unavailable as well.
+	if v, found, _ := unstructured.NestedInt64(obj.Object, "spec", "replicas"); found && s.CurrentPrimary >= 0 {
+		if missing := int(v) - 1 - readyReplicas; missing > 0 {
+			s.UnavailableReplicas = missing
+		}
 	}
 	return s, obj, nil
 }

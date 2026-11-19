@@ -109,6 +109,10 @@ type InstanceState struct {
 	DesiredPrimary int
 	// SwitchoverFailing is true while the PrimarySwitched condition is False.
 	SwitchoverFailing bool
+	// UnavailableReplicas counts the replicas (spec.replicas - 1) that are not Ready. The operator's
+	// planned switchover waits for every replica to sync and restarts the wait when it times out,
+	// and it holds the primary read-only while it waits: with a replica down it never finishes.
+	UnavailableReplicas int
 	// AbortedTarget is the replica index whose switchover the guard aborted, and AbortedAt when;
 	// AbortedTarget is -1 when there is none.
 	AbortedTarget int
@@ -182,6 +186,10 @@ func planEvacuation(s InstanceState, nodes map[string]NodeInfo, drainKeys map[st
 	}
 	if !lastRequested.IsZero() && now.Sub(lastRequested) < evacuationCooldown {
 		return EvacuationPlan{Action: actionRecent, Reason: "an evacuation was requested less than a minute ago"}
+	}
+
+	if s.UnavailableReplicas > 0 {
+		return EvacuationPlan{Action: actionBlocked, Reason: "a replica is not Ready: the operator's switchover waits for every replica and would hold the primary read-only until it returns"}
 	}
 
 	var candidates []PodState

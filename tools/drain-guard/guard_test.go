@@ -293,3 +293,19 @@ func TestWithoutAnyCandidateTheDrainBlocks(t *testing.T) {
 		t.Fatalf("with every replica excluded the drain must wait, got %+v", plan)
 	}
 }
+
+func TestNoSwitchoverWhileAReplicaIsUnavailable(t *testing.T) {
+	drainingA := nodeA
+	drainingA.Unschedulable = true
+	s := instance(0)
+	s.UnavailableReplicas = 1 // the operator's switchover would wait for it and hold the primary read-only
+	plan := planEvacuation(s, nodesOf(drainingA, nodeB, nodeC), keys, t0, time.Time{})
+	if plan.Action != actionBlocked {
+		t.Fatalf("with a replica down the guard must wait, not start a switchover, got %+v", plan)
+	}
+	s.UnavailableReplicas = 0
+	plan = planEvacuation(s, nodesOf(drainingA, nodeB, nodeC), keys, t0, time.Time{})
+	if plan.Action != actionSwitch {
+		t.Fatalf("with every replica up the switchover starts, got %+v", plan)
+	}
+}
