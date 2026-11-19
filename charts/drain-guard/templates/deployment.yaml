@@ -8,6 +8,12 @@ metadata:
     {{- toYaml $labels | nindent 4 }}
 spec:
   replicas: {{ .Values.replicas }}
+  # No surge pod: the required anti-affinity needs a node per replica, as for the canary.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: drain-guard
