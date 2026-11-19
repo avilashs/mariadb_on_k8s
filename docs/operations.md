@@ -76,8 +76,13 @@ Backups are required on the `local-nvme` tier: a pod that moves to a new node co
 itself from the newest backup, then catches up through GTID.
 
 Recovery objective, as measured by the e2e suites on kind (not a production promise): replicas rebuild
-automatically; point in time restore reaches any time up to the archive's newest position, which trails
-the present by at most `backup.binlogArchiveTimeout` (1 minute by default). A production promise comes from
+automatically; point in time restore reaches any time up to the archive's newest position. That position
+trails the present by at most `backup.binlogFlushMinutes` (5 by default) plus the operator agent's fixed
+10 minute archive cycle, so about 15 minutes. Why: the agent archives only CLOSED binary logs and never
+closes the active one, so a CronJob (`<name>-binlog-flush`, as a role that holds only `RELOAD`) closes it
+on the schedule. `backup.binlogArchiveTimeout` is only the longest one archival run may take, not a
+cadence. Archival is also skipped while the instance is switching primary, updating or recovering a
+replica, so the position can pause during a rotation or a drain. A production promise comes from
 `make restore-drill` on a production-sized data set (phase 12 gate).
 
 ### Check that backups are current
@@ -87,8 +92,9 @@ kubectl -n db-<name> get physicalbackup,pointintimerecovery
 kubectl -n db-<name> get pointintimerecovery <name> -o jsonpath='{.status.lastRecoverableTime}{"\n"}'
 ```
 
-`lastRecoverableTime` should be within a few minutes of now. A stale value means the binlog archive is stuck;
-the `DbBinlogArchiveStale` alert (phase 8) covers it.
+`lastRecoverableTime` should be within about 15 minutes of now (see the recovery objective above). A stale
+value means the binlog archive is stuck, or the flush job is not running (`kubectl -n db-<name> get cronjob,jobs`);
+the `DbLogArchiveStalled` alert (phase 8) fires after two hours.
 
 ### Restore to a point in time
 
