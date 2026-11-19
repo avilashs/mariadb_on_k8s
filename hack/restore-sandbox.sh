@@ -30,6 +30,15 @@ fi
 # 2. Docker. A restarted sandbox has no daemon.
 if ! timeout 15 docker info >/dev/null 2>&1; then
   if command -v dockerd >/dev/null && [[ $(id -u) == 0 ]]; then
+    # A PID file left by a dead daemon stops a new one from starting, and the PID may now
+    # belong to another process. Remove it unless its process is dockerd.
+    if [[ -f /var/run/docker.pid ]]; then
+      pid="$(cat /var/run/docker.pid 2>/dev/null || true)"
+      if [[ -z "${pid}" ]] || ! grep -q dockerd "/proc/${pid}/comm" 2>/dev/null; then
+        log "removing stale /var/run/docker.pid"
+        rm -f /var/run/docker.pid
+      fi
+    fi
     log "starting dockerd"
     nohup dockerd >"${ROOT}/.cache/dockerd.log" 2>&1 &
     for _ in $(seq 1 30); do timeout 5 docker info >/dev/null 2>&1 && break; sleep 2; done
