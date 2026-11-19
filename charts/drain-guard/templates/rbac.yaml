@@ -21,6 +21,14 @@ rules:
   - apiGroups: ["k8s.mariadb.com"]
     resources: ["mariadbs"]
     verbs: ["get", "list", "watch", "patch"]
+  # Point in time recovery baselines: after a primary change the guard requests one backup of the
+  # PhysicalBackup that the instance's PointInTimeRecovery names.
+  - apiGroups: ["k8s.mariadb.com"]
+    resources: ["pointintimerecoveries"]
+    verbs: ["get"]
+  - apiGroups: ["k8s.mariadb.com"]
+    resources: ["physicalbackups"]
+    verbs: ["get", "patch"]
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["create", "patch"]

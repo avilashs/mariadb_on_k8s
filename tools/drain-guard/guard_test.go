@@ -309,3 +309,50 @@ func TestNoSwitchoverWhileAReplicaIsUnavailable(t *testing.T) {
 		t.Fatalf("with every replica up the switchover starts, got %+v", plan)
 	}
 }
+
+func TestBaselineIsRequestedOncePerPrimaryChange(t *testing.T) {
+	base := func() InstanceState {
+		s := instance(1)
+		s.PITRName = "alpha"
+		s.Ready = true
+		s.BaselinePrimary = 0
+		return s
+	}
+	s := base()
+	if !needsBaseline(s, t0) {
+		t.Fatal("the primary moved from 0 to 1 since the last baseline: a backup is needed")
+	}
+	s = base()
+	s.BaselinePrimary = 1
+	if needsBaseline(s, t0) {
+		t.Fatal("the baseline was already requested for this primary")
+	}
+	s = base()
+	s.PITRName = ""
+	if needsBaseline(s, t0) {
+		t.Fatal("an instance without point in time recovery needs no baseline")
+	}
+	s = base()
+	s.Ready = false
+	if needsBaseline(s, t0) {
+		t.Fatal("wait until the instance is Ready")
+	}
+	s = base()
+	s.DesiredPrimary = 2 // a switchover is under way
+	if needsBaseline(s, t0) {
+		t.Fatal("wait until the switchover is over: the primary is about to change again")
+	}
+	s = base()
+	s.BaselineAt = t0.Add(-time.Minute)
+	if needsBaseline(s, t0) {
+		t.Fatal("a baseline was requested a minute ago: the cooldown applies")
+	}
+	if !needsBaseline(s, t0.Add(baselineCooldown)) {
+		t.Fatal("after the cooldown the baseline is requested")
+	}
+	s = base()
+	s.BaselinePrimary = -1 // never recorded
+	if !needsBaseline(s, t0) {
+		t.Fatal("an instance with no baseline on record gets one")
+	}
+}

@@ -82,6 +82,8 @@ func (g *Guard) loadInstance(ctx context.Context, ns, name string) (*InstanceSta
 	s := &InstanceState{Namespace: ns, Name: name, CurrentPrimary: -1, DesiredPrimary: -1}
 	// The abort is recorded on the object, so every replica sees it (see abortedAnnotation).
 	s.AbortedTarget, s.AbortedAt = parseAborted(obj.GetAnnotations()[abortedAnnotation])
+	s.BaselinePrimary, s.BaselineAt = parseAborted(obj.GetAnnotations()[baselineAnnotation])
+	s.PITRName, _, _ = unstructured.NestedString(obj.Object, "spec", "pointInTimeRecoveryRef", "name")
 	if v, found, _ := unstructured.NestedInt64(obj.Object, "status", "currentPrimaryPodIndex"); found {
 		s.CurrentPrimary = int(v)
 	}
@@ -96,6 +98,9 @@ func (g *Guard) loadInstance(ctx context.Context, ns, name string) (*InstanceSta
 		}
 		if m["type"] == "PrimarySwitched" && m["status"] == "False" {
 			s.SwitchoverFailing = true
+		}
+		if m["type"] == "Ready" && m["status"] == "True" {
+			s.Ready = true
 		}
 	}
 
@@ -159,6 +164,10 @@ func (g *Guard) Reconcile(ctx context.Context) error {
 		}
 		if err := g.abortStalledSwitchover(ctx, s, obj); err != nil {
 			return err
+		}
+		if err := g.ensureBaseline(ctx, s, obj); err != nil {
+			g.Recorder.Eventf(runtime.Object(obj), corev1.EventTypeWarning, "BaselineBackupFailed",
+				"could not request a baseline backup for point in time recovery: %v", err)
 		}
 		s.Pods = dropExcluded(s.Pods, s.excluded(g.Now()))
 		plan := planEvacuation(*s, nodes, g.DrainKeys, g.Now(), g.lastRequestedAt(s))
@@ -303,4 +312,50 @@ func planEvacuationForced(s InstanceState, nodes map[string]NodeInfo, drainKeys 
 		}
 	}
 	return planEvacuation(s, nodes, drainKeys, now, lastRequested)
+}
+
+var (
+	pitrGVK           = schema.GroupVersionKind{Group: "k8s.mariadb.com", Version: "v1alpha1", Kind: "PointInTimeRecovery"}
+	physicalBackupGVK = schema.GroupVersionKind{Group: "k8s.mariadb.com", Version: "v1alpha1", Kind: "PhysicalBackup"}
+)
+
+// ensureBaseline requests a physical backup after a primary change, so that point in time recovery
+// has a baseline on the new primary's timeline (see needsBaseline). It patches the on-demand trigger
+// of the PhysicalBackup that the instance's PointInTimeRecovery names, then records the primary and
+// the time on the MariaDB. The record is written only after the backup was requested.
+func (g *Guard) ensureBaseline(ctx context.Context, s *InstanceState, obj *unstructured.Unstructured) error {
+	if !needsBaseline(*s, g.Now()) {
+		return nil
+	}
+	pitr := &unstructured.Unstructured{}
+	pitr.SetGroupVersionKind(pitrGVK)
+	if err := g.Reader.Get(ctx, types.NamespacedName{Namespace: s.Namespace, Name: s.PITRName}, pitr); err != nil {
+		return fmt.Errorf("reading the PointInTimeRecovery %s: %w", s.PITRName, err)
+	}
+	backupName, _, _ := unstructured.NestedString(pitr.Object, "spec", "physicalBackupRef", "name")
+	if backupName == "" {
+		return fmt.Errorf("the PointInTimeRecovery %s names no PhysicalBackup", s.PITRName)
+	}
+	backup := &unstructured.Unstructured{}
+	backup.SetGroupVersionKind(physicalBackupGVK)
+	if err := g.Reader.Get(ctx, types.NamespacedName{Namespace: s.Namespace, Name: backupName}, backup); err != nil {
+		return fmt.Errorf("reading the PhysicalBackup %s: %w", backupName, err)
+	}
+	now := g.Now()
+	trigger := fmt.Sprintf("baseline-p%d-%d", s.CurrentPrimary, now.Unix())
+	patch, _ := json.Marshal(map[string]any{"spec": map[string]any{"schedule": map[string]any{"onDemand": trigger}}})
+	if err := g.Client.Patch(ctx, backup, client.RawPatch(types.MergePatchType, patch)); err != nil {
+		return fmt.Errorf("requesting the baseline backup %s: %w", backupName, err)
+	}
+	mark, _ := json.Marshal(map[string]any{"metadata": map[string]any{"annotations": map[string]any{
+		baselineAnnotation: fmt.Sprintf("%d@%s", s.CurrentPrimary, now.UTC().Format(time.RFC3339)),
+	}}})
+	if err := g.Client.Patch(ctx, obj, client.RawPatch(types.MergePatchType, mark)); err != nil {
+		return fmt.Errorf("recording the baseline of %s/%s: %w", s.Namespace, s.Name, err)
+	}
+	g.Recorder.Eventf(runtime.Object(obj), corev1.EventTypeNormal, "BaselineBackupRequested",
+		"the primary is now pod index %d: requested a backup (%s) so that point in time recovery has a baseline on its timeline",
+		s.CurrentPrimary, backupName)
+	g.Metrics.observeEvacuation(s.Namespace, "baseline", 0)
+	return nil
 }

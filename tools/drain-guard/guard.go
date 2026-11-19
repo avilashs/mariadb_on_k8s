@@ -109,6 +109,13 @@ type InstanceState struct {
 	DesiredPrimary int
 	// SwitchoverFailing is true while the PrimarySwitched condition is False.
 	SwitchoverFailing bool
+	// PITRName is spec.pointInTimeRecoveryRef.name; empty when the instance has no point in time
+	// recovery. Ready is the Ready condition. BaselinePrimary and BaselineAt come from the
+	// baselineAnnotation: the primary the newest baseline backup was requested for, and when.
+	PITRName        string
+	Ready           bool
+	BaselinePrimary int
+	BaselineAt      time.Time
 	// UnavailableReplicas counts the replicas (spec.replicas - 1) that are not Ready. The operator's
 	// planned switchover waits for every replica to sync and restarts the wait when it times out,
 	// and it holds the primary read-only while it waits: with a replica down it never finishes.
@@ -276,4 +283,29 @@ func indexOf(podName, instance string) int {
 		n = n*10 + int(c-'0')
 	}
 	return n
+}
+
+// baselineAnnotation records, on the MariaDB, the primary index for which the guard last requested
+// a baseline backup and when, as "<index>@<RFC3339>" (the same form as abortedAnnotation).
+const baselineAnnotation = "dbaas.local/pitr-baseline"
+
+// baselineCooldown is the shortest time between two baseline requests of one instance.
+const baselineCooldown = 5 * time.Minute
+
+// needsBaseline reports whether a new physical backup must be requested for point in time recovery.
+//
+// The operator builds the recoverable timeline from the base backup's GTID forward through the
+// binary logs the PRIMARY archived. Only the primary archives, so when the primary changes the tail
+// of the old primary's last log is never archived and the chain from the old backup has a gap: the
+// last recoverable time stops moving. A backup taken on the new primary starts a new timeline
+// (operator docs: "The backup taken in the new primary will establish a baseline"). So after every
+// primary change one backup is requested, once the switch is over and the instance is Ready.
+func needsBaseline(s InstanceState, now time.Time) bool {
+	if s.PITRName == "" || s.CurrentPrimary < 0 || !s.Ready || s.switchoverPending() {
+		return false
+	}
+	if s.BaselinePrimary == s.CurrentPrimary {
+		return false
+	}
+	return s.BaselineAt.IsZero() || now.Sub(s.BaselineAt) >= baselineCooldown
 }
