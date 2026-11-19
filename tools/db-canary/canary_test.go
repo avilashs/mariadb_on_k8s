@@ -4,10 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/go-sql-driver/mysql"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -36,6 +40,7 @@ type fakeDB struct {
 	mu          sync.Mutex
 	rows        map[int64]time.Time // seq -> ts, for one writer
 	failInserts int                 // the next N inserts fail
+	failErr     error               // what a failed insert returns; errDown when nil
 	failReads   int                 // the next N reads fail
 	latest      time.Time           // what a reader sees; zero means nothing yet
 }
@@ -49,6 +54,9 @@ func (db *fakeDB) Insert(_ context.Context, _ string, seq int64, ts time.Time) e
 	defer db.mu.Unlock()
 	if db.failInserts > 0 {
 		db.failInserts--
+		if db.failErr != nil {
+			return db.failErr
+		}
 		return errDown
 	}
 	db.rows[seq] = ts
@@ -320,6 +328,52 @@ func TestNewRejectsUnsafeConfiguration(t *testing.T) {
 	for name, cfg := range cases {
 		if _, err := New(cfg, db, db, clock.now, m); err == nil {
 			t.Errorf("%s: New accepted an unsafe configuration", name)
+		}
+	}
+}
+
+func TestReadOnlyWriteErrorsAreCountedAndTheLastErrorIsReported(t *testing.T) {
+	clock := &fakeClock{t: time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)}
+	db := newFakeDB()
+	db.failInserts = 2
+	db.failErr = &mysql.MySQLError{Number: 1290, Message: "The MariaDB server is running with the --read-only option so it cannot execute this statement"}
+	c := newTestCanary(t, db, clock)
+	ctx := context.Background()
+	for i := 0; i < 3; i++ {
+		clock.advance(time.Second)
+		c.WriteOnce(ctx)
+	}
+	rep, _ := c.Snapshot(ctx)
+	if rep.ReadOnlyWriteErrors != 2 || rep.WriteFailures != 2 {
+		t.Fatalf("want 2 read-only write errors; got %+v", rep)
+	}
+	if !strings.Contains(rep.LastWriteError, "read-only") {
+		t.Fatalf("the report must carry the last write error, got %q", rep.LastWriteError)
+	}
+	c.Reset()
+	if rep, _ = c.Snapshot(ctx); rep.ReadOnlyWriteErrors != 0 || rep.LastWriteError != "" {
+		t.Fatalf("a reset must clear the error state, got %+v", rep)
+	}
+}
+
+func TestIsReadOnlyError(t *testing.T) {
+	cases := []struct {
+		err  error
+		want bool
+	}{
+		{&mysql.MySQLError{Number: 1290}, true},
+		{&mysql.MySQLError{Number: 1792}, true},
+		{&mysql.MySQLError{Number: 1836}, true},
+		{fmt.Errorf("insert: %w", &mysql.MySQLError{Number: 1290}), true},
+		{&pgconn.PgError{Code: "25006"}, true},
+		{&mysql.MySQLError{Number: 1062}, false},
+		{&pgconn.PgError{Code: "23505"}, false},
+		{errors.New("connection refused"), false},
+		{nil, false},
+	}
+	for _, c := range cases {
+		if got := isReadOnlyError(c.err); got != c.want {
+			t.Errorf("isReadOnlyError(%v) = %v, want %v", c.err, got, c.want)
 		}
 	}
 }

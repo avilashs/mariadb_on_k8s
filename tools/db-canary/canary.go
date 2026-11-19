@@ -54,6 +54,8 @@ type Canary struct {
 	acked map[int64]time.Time // acknowledged sequence numbers and the time each was written
 
 	writeAttempts, writeFailures int64
+	readOnlyWriteErrors          int64  // writes refused because the server was read-only
+	lastWriteError               string // the newest write error, for diagnosing an outage
 	lastWriteOK                  time.Time
 	longestWriteOutage           time.Duration
 
@@ -125,6 +127,10 @@ func (c *Canary) WriteOnce(ctx context.Context) bool {
 	c.writeAttempts++
 	if err != nil {
 		c.writeFailures++
+		c.lastWriteError = truncate(err.Error(), 200)
+		if isReadOnlyError(err) {
+			c.readOnlyWriteErrors++
+		}
 		return false
 	}
 	c.acked[seq] = ts
@@ -249,6 +255,8 @@ type Report struct {
 	LostAcknowledgedWrites int64   `json:"lost_acknowledged_writes"`
 	AcknowledgedWrites     int64   `json:"acknowledged_writes"`
 	VerifiedWindowSeconds  float64 `json:"verified_window_seconds"`
+	ReadOnlyWriteErrors    int64   `json:"read_only_write_errors"`
+	LastWriteError         string  `json:"last_write_error,omitempty"`
 }
 
 // Snapshot verifies the acknowledged writes and returns the report.
@@ -263,6 +271,8 @@ func (c *Canary) Snapshot(ctx context.Context) (Report, error) {
 		Writer:                 c.cfg.Writer,
 		WriteAttempts:          c.writeAttempts,
 		WriteFailures:          c.writeFailures,
+		ReadOnlyWriteErrors:    c.readOnlyWriteErrors,
+		LastWriteError:         c.lastWriteError,
 		LongestWriteOutageSec:  c.longestWriteOutage.Seconds(),
 		ReadAttempts:           c.readAttempts,
 		ReadFailures:           c.readFailures,
@@ -281,9 +291,18 @@ func (c *Canary) Reset() {
 	defer c.mu.Unlock()
 	c.acked = map[int64]time.Time{}
 	c.writeAttempts, c.writeFailures = 0, 0
+	c.readOnlyWriteErrors, c.lastWriteError = 0, ""
 	c.readAttempts, c.readFailures = 0, 0
 	c.lastWriteOK, c.lastReadOK = time.Time{}, time.Time{}
 	c.longestWriteOutage, c.longestReadOutage = 0, 0
 	c.lastDelay, c.lostAcked = 0, 0
 	c.metrics.reset()
+}
+
+// truncate shortens a string to at most n bytes.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
 }

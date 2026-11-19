@@ -394,39 +394,70 @@ settle() {
   done
 }
 
+# want <letter>: true when ONLY is unset or lists the case (ONLY="c h"; INSTANCES="alpha" limits the instances).
+want() { [[ -z "${ONLY:-}" || " ${ONLY} " == *" $1 "* ]]; }
+
 # A second tag for the same server image: rolling to it changes the pod template only, and
-# needs no pull (the nodes already hold the image). Loaded into kind before the cases run.
+# needs no pull. The tag is made inside each kind node's containerd, from the image the nodes
+# already run; loading it from the host would need the host's copy to carry every platform blob.
 ROLL_IMAGE="dbaas/mariadb-roll:e2e"
 ROLL_READY=0
-if docker image inspect mariadb:11.8.9 >/dev/null 2>&1 && docker tag mariadb:11.8.9 "${ROLL_IMAGE}" >/dev/null 2>&1 &&
-  kind load docker-image "${ROLL_IMAGE}" --name "${KIND_CLUSTER:-dbaas}" >/dev/null 2>&1; then
+roll_image_tag() {
+  local node tagged=0
+  for node in $(docker ps --format '{{.Names}}' | grep "^${KIND_CLUSTER:-dbaas}-worker"); do
+    if docker exec "${node}" ctr --namespace=k8s.io images ls -q 2>/dev/null | grep -qx 'docker.io/library/mariadb:11.8.9'; then
+      docker exec "${node}" ctr --namespace=k8s.io images tag --force \
+        docker.io/library/mariadb:11.8.9 "docker.io/${ROLL_IMAGE}" >/dev/null 2>&1 && tagged=$((tagged + 1))
+    fi
+  done
+  ((tagged > 0))
+}
+if roll_image_tag; then
   ROLL_READY=1
 fi
 
-for inst in alpha beta; do
+for inst in ${INSTANCES:-alpha beta}; do
   log "drain acceptance for ${inst} ($(kc -n "db-${inst}" get mariadb "${inst}" -o jsonpath='{.spec.nodeSelector.dbaas\.local/node-class}'))"
-  settle "${inst}" || { FAILURES=$((FAILURES + 1)); echo "  FAIL  [${inst}] settle"; }
-  check "[${inst}] a: a replica's node drains with no failed write; the secondary keeps an endpoint" case_a_replica_drained "${inst}"
-  settle "${inst}" || { FAILURES=$((FAILURES + 1)); echo "  FAIL  [${inst}] settle"; }
-  check "[${inst}] b: the primary's node drains by itself; the role moves before the pod goes; outage within the limit" case_b_primary_node_drained "${inst}"
-  settle "${inst}" || { FAILURES=$((FAILURES + 1)); echo "  FAIL  [${inst}] settle"; }
-  check "[${inst}] c: a replica away, then the primary's node drains; the primary is never evicted while it holds the role" case_c_replica_away_then_primary_drained "${inst}"
-  settle "${inst}" || { FAILURES=$((FAILURES + 1)); echo "  FAIL  [${inst}] settle"; }
-  check "[${inst}] d: no candidate: the drain blocks, nothing switches, the blocked gauge is 1; it completes after uncordon" case_d_no_candidate_blocks "${inst}"
-  settle "${inst}" || { FAILURES=$((FAILURES + 1)); echo "  FAIL  [${inst}] settle"; }
-  check "[${inst}] e: with the guard down, a drain fails and no database pod is deleted; after it returns the drain completes" case_e_guard_down_refuses_drains "${inst}"
-  settle "${inst}" || { FAILURES=$((FAILURES + 1)); echo "  FAIL  [${inst}] settle"; }
-  check "[${inst}] f: a dry run of the primary's eviction is refused and moves nothing" case_f_dry_run_eviction_of_primary "${inst}"
-  if [[ "${ROLL_READY}" == "1" ]]; then
+  if want a; then
     settle "${inst}" || { FAILURES=$((FAILURES + 1)); echo "  FAIL  [${inst}] settle"; }
-  check "[${inst}] h: a rolling image change: replicas first, one planned switchover, then the old primary" case_h_image_roll "${inst}" "${ROLL_IMAGE}"
+    check "[${inst}] a: a replica's node drains with no failed write; the secondary keeps an endpoint" case_a_replica_drained "${inst}"
+  fi
+  if want b; then
+    settle "${inst}" || { FAILURES=$((FAILURES + 1)); echo "  FAIL  [${inst}] settle"; }
+    check "[${inst}] b: the primary's node drains by itself; the role moves before the pod goes; outage within the limit" case_b_primary_node_drained "${inst}"
+  fi
+  if want c; then
+    settle "${inst}" || { FAILURES=$((FAILURES + 1)); echo "  FAIL  [${inst}] settle"; }
+    check "[${inst}] c: a replica away, then the primary's node drains; the primary is never evicted while it holds the role" case_c_replica_away_then_primary_drained "${inst}"
+  fi
+  if want d; then
+    settle "${inst}" || { FAILURES=$((FAILURES + 1)); echo "  FAIL  [${inst}] settle"; }
+    check "[${inst}] d: no candidate: the drain blocks, nothing switches, the blocked gauge is 1; it completes after uncordon" case_d_no_candidate_blocks "${inst}"
+  fi
+  if want e; then
+    settle "${inst}" || { FAILURES=$((FAILURES + 1)); echo "  FAIL  [${inst}] settle"; }
+    check "[${inst}] e: with the guard down, a drain fails and no database pod is deleted; after it returns the drain completes" case_e_guard_down_refuses_drains "${inst}"
+  fi
+  if want f; then
+    settle "${inst}" || { FAILURES=$((FAILURES + 1)); echo "  FAIL  [${inst}] settle"; }
+    check "[${inst}] f: a dry run of the primary's eviction is refused and moves nothing" case_f_dry_run_eviction_of_primary "${inst}"
+  fi
+  if [[ "${ROLL_READY}" == "1" ]]; then
+    if want h; then
+      settle "${inst}" || { FAILURES=$((FAILURES + 1)); echo "  FAIL  [${inst}] settle"; }
+      check "[${inst}] h: a rolling image change: replicas first, one planned switchover, then the old primary" case_h_image_roll "${inst}" "${ROLL_IMAGE}"
+    fi
   fi
   if [[ "${inst}" == "beta" ]]; then
-    settle "${inst}" || { FAILURES=$((FAILURES + 1)); echo "  FAIL  [${inst}] settle"; }
-  check "[${inst}] i: the primary's node drains and its volume is discarded; the old primary re-seeds and rejoins by itself" case_i_nvme_primary_loses_its_volume "${inst}"
+    if want i; then
+      settle "${inst}" || { FAILURES=$((FAILURES + 1)); echo "  FAIL  [${inst}] settle"; }
+      check "[${inst}] i: the primary's node drains and its volume is discarded; the old primary re-seeds and rejoins by itself" case_i_nvme_primary_loses_its_volume "${inst}"
+    fi
   fi
 done
 
-check "g: two primaries on one node both move when the node drains" case_g_two_primaries_on_one_node alpha
+if want g; then
+  check "g: two primaries on one node both move when the node drains" case_g_two_primaries_on_one_node alpha
+fi
 
 summary

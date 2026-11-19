@@ -119,6 +119,9 @@ func (s *mysqlStore) Migrate(ctx context.Context) error {
 func (s *mysqlStore) Insert(ctx context.Context, writer string, seq int64, ts time.Time) error {
 	_, err := s.write.ExecContext(ctx,
 		"INSERT INTO heartbeat (writer, seq, ts) VALUES (?, ?, ?)", writer, seq, ts.UTC())
+	if err != nil && isReadOnlyError(err) {
+		dropIdleConns(s.write, 2)
+	}
 	return err
 }
 
