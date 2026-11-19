@@ -267,7 +267,7 @@ case_d_no_candidate_blocks() {
 # guard_serving: the drain-guard Service has ready endpoints. The guard's webhook is fail-closed,
 # so a drain that calls it before a replica serves fails with a dial error, not a refusal.
 guard_serving() {
-  local i ready
+  local ready
   for _ in $(seq 1 60); do
     ready="$(kc -n dbaas-system get endpointslices -l kubernetes.io/service-name=drain-guard -o json |
       jq '[.items[].endpoints[]? | select(.conditions.ready == true)] | length')"
@@ -311,7 +311,10 @@ case_f_dry_run_eviction_of_primary() {
 }
 
 case_h_image_roll() {
-  local inst="$1" image="$2"
+  local inst="$1" image="$2" current
+  # Roll to the spelling that differs from the current one, so the case can run repeatedly.
+  current="$(kc -n "db-${inst}" get mariadb "${inst}" -o jsonpath='{.spec.image}')"
+  [[ "${current}" != "${image}" ]] || image="docker.io/library/mariadb:11.8.9"
   canary_reset "${inst}"
   start_sampler "${inst}"
   helm --kube-context "${CONTEXT}" upgrade "${inst}" "${ROOT}/charts/mariadb-instance" \
@@ -397,24 +400,18 @@ settle() {
 # want <letter>: true when ONLY is unset or lists the case (ONLY="c h"; INSTANCES="alpha" limits the instances).
 want() { [[ -z "${ONLY:-}" || " ${ONLY} " == *" $1 "* ]]; }
 
-# A second tag for the same server image: rolling to it changes the pod template only, and
-# needs no pull. The tag is made inside each kind node's containerd, from the image the nodes
-# already run; loading it from the host would need the host's copy to carry every platform blob.
-ROLL_IMAGE="dbaas/mariadb-roll:e2e"
+# The roll image is the same server image under another spelling: kubelet treats
+# "mariadb:11.8.9" and "docker.io/library/mariadb:11.8.9" as one image, so nothing is pulled, but
+# the pod template differs and the operator rolls every pod. (A second tag made with ctr is not
+# used: kubelet pulled it anyway.)
+ROLL_IMAGE="mariadb:11.8.9"
 ROLL_READY=0
-roll_image_tag() {
-  local node tagged=0
-  for node in $(docker ps --format '{{.Names}}' | grep "^${KIND_CLUSTER:-dbaas}-worker"); do
-    if docker exec "${node}" ctr --namespace=k8s.io images ls -q 2>/dev/null | grep -qx 'docker.io/library/mariadb:11.8.9'; then
-      docker exec "${node}" ctr --namespace=k8s.io images tag --force \
-        docker.io/library/mariadb:11.8.9 "docker.io/${ROLL_IMAGE}" >/dev/null 2>&1 && tagged=$((tagged + 1))
-    fi
-  done
-  ((tagged > 0))
-}
-if roll_image_tag; then
-  ROLL_READY=1
-fi
+for roll_node in $(docker ps --format '{{.Names}}' | grep "^${KIND_CLUSTER:-dbaas}-worker"); do
+  if docker exec "${roll_node}" ctr --namespace=k8s.io images ls -q 2>/dev/null | grep -qx 'docker.io/library/mariadb:11.8.9'; then
+    ROLL_READY=1
+    break
+  fi
+done
 
 for inst in ${INSTANCES:-alpha beta}; do
   log "drain acceptance for ${inst} ($(kc -n "db-${inst}" get mariadb "${inst}" -o jsonpath='{.spec.nodeSelector.dbaas\.local/node-class}'))"
