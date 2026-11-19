@@ -53,3 +53,21 @@ tests:
           content:
             apiGroups: [""]
             resources: ["secrets"]
+
+  - it: pulls the image with the named secrets when a private registry is used
+    template: templates/deployment.yaml
+    documentIndex: 0
+    set:
+      imagePullSecrets:
+        - name: dbaas-registry
+    asserts:
+      - equal:
+          path: spec.template.spec.imagePullSecrets[0].name
+          value: dbaas-registry
+
+  - it: sets no pull secret by default
+    template: templates/deployment.yaml
+    documentIndex: 0
+    asserts:
+      - notExists:
+          path: spec.template.spec.imagePullSecrets

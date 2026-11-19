@@ -20,3 +20,6 @@ priorityClassName: dbaas-platform
 # Secret with the server CA (ca.crt): <name>-ca-bundle for MariaDB, <name>-ca for CloudNativePG.
 caSecret: ""
 verifyServer: true
+
+# Names of Secrets in the release namespace that the image is pulled with (a private registry).
+imagePullSecrets: []

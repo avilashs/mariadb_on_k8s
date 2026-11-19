@@ -1,0 +1,15 @@
+# AKS rehearsal overrides on top of helmfile.d/values/. AKS manages the control plane, so its
+# components cannot be scraped; with the Cilium dataplane there is no kube-proxy.
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeEtcd:
+  enabled: false
+kubeProxy:
+  enabled: false
+prometheus:
+  prometheusSpec:
+    retention: 1d
+    retentionSize: 4GB
+    storageSpec: null

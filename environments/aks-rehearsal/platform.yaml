@@ -1,0 +1,78 @@
+# Platform values for the AKS rehearsal cluster (Sweden Central, one system node and one
+# Premium SSD v2 pool per zone). Test-only: the object store is the in-cluster test store.
+# The local NVMe class is not part of this rehearsal: its VM sizes start at 8 vCPU, which
+# does not fit the subscription's 20 vCPU regional quota.
+cloud: aks
+kubeContext: dbaas-aks
+
+monitoring:
+  install: true
+  prometheusRelease: kube-prometheus-stack
+
+testObjectStore:
+  # Kind-only S3-compatible store for backups and binlog archives.
+  install: true
+  bucket: dbaas-test
+
+backupStore:
+  # The S3-compatible bucket for backups and binlog archives. The instance charts read
+  # this block through the catalogue. The Secret named here holds access-key-id and
+  # secret-access-key; instances-up.sh copies it into every instance namespace that
+  # has backups enabled. Kind: the public test store (PLAN.md phase 5).
+  bucket: dbaas-test
+  endpoint: test-object-store.object-store.svc:8333
+  region: us-east-1
+  tls: false
+  credentialsNamespace: object-store
+  credentialsSecret: test-object-store-credentials
+
+registry:
+  # Private registry of the rehearsal. The pull secret holds the admin credential and is created
+  # by scripts/ensure-registry-secret.sh from environment variables; it is never committed.
+  # The db-canary image is passed as CANARY_IMAGE=dbaasrehtwaeq9bn.azurecr.io/db-canary:dev.
+  pullSecrets:
+    - name: dbaas-registry
+
+drainGuard:
+  # One system node in the rehearsal: a second replica could not be placed.
+  replicas: 1
+  image: dbaasrehtwaeq9bn.azurecr.io/drain-guard:dev
+
+localNvme:
+  # No local NVMe class in the rehearsal (see the header).
+  driver: none
+
+storageTiers:
+  premium-ssd-v2:
+    provisioner: disk.csi.azure.com
+    parameters:
+      skuName: PremiumV2_LRS
+      cachingMode: None
+    perClassParameters: true
+
+storageClasses:
+  db-pv2:
+    tier: premium-ssd-v2
+    iops: 3000
+    throughputMbps: 125
+  db-pv2-fast:
+    tier: premium-ssd-v2
+    iops: 16000
+    throughputMbps: 500
+
+# One node pool per class per zone on AKS: pv2d4z1, pv2d4z2, pv2d4z3.
+nodeClasses:
+  aks-pv2:
+    storageTier: premium-ssd-v2
+    storageClassName: db-pv2
+    vmSize: Standard_D4s_v5
+
+namespaces:
+  dbaas-system:
+    enforce: baseline
+  monitoring:
+    enforce: privileged
+    audit: privileged
+    warn: privileged
+  mariadb-system:
+    enforce: baseline

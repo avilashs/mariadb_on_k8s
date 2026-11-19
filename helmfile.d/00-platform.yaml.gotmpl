@@ -143,7 +143,7 @@ releases:
       - default/db-platform-base
       - cert-manager/cert-manager
     values:
-      - {{ dict "image" (dig "drainGuard" "image" "dbaas/drain-guard:dev" $platform) "replicas" (dig "drainGuard" "replicas" 3 $platform) "drainTaintKeys" (dig "drainGuard" "drainTaintKeys" (list) $platform) | toJson }}
+      - {{ dict "image" (dig "drainGuard" "image" "dbaas/drain-guard:dev" $platform) "replicas" (dig "drainGuard" "replicas" 3 $platform) "drainTaintKeys" (dig "drainGuard" "drainTaintKeys" (list) $platform) "imagePullSecrets" (dig "registry" "pullSecrets" (list) $platform) | toJson }}
 
 {{- if eq (dig "localNvme" "driver" "none" $platform) "helm" }}
   - name: local-csi-driver

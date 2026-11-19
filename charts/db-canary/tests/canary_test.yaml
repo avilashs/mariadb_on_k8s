@@ -66,3 +66,23 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: "engine must be mariadb or postgres, got \"oracle\""
+
+  - it: pulls the image with the named secrets when a private registry is used
+    set:
+      imagePullSecrets:
+        - name: dbaas-registry
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.imagePullSecrets[0].name
+          value: dbaas-registry
+
+  - it: sets no pull secret by default
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - notExists:
+          path: spec.template.spec.imagePullSecrets

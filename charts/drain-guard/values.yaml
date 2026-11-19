@@ -13,3 +13,6 @@ webhookTimeoutSeconds: 5
 # Seconds the pod keeps serving after SIGTERM, so endpoints are removed before the process exits.
 preStopSleepSeconds: 5
 terminationGracePeriodSeconds: 30
+
+# Names of Secrets in the release namespace that the image is pulled with (a private registry).
+imagePullSecrets: []
