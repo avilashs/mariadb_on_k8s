@@ -140,15 +140,20 @@ wait_ready() {
   done
 }
 
+# guard_metric <name>: the largest value of a drain-guard series over its replicas. Only the
+# leader runs the reconcile loop that sets drain_guard_blocked_instances, so a follower reports 0.
 guard_metric() {
-  local pod port
-  pod="$(kc -n dbaas-system get pods -l app.kubernetes.io/name=drain-guard -o jsonpath='{.items[0].metadata.name}')"
-  port=$((28000 + RANDOM % 1000))
-  kc -n dbaas-system port-forward "pod/${pod}" "${port}:8080" >/dev/null 2>&1 &
-  local pf=$!
-  for _ in $(seq 1 50); do curl -fsS -o /dev/null "http://127.0.0.1:${port}/metrics" 2>/dev/null && break; sleep 0.2; done
-  curl -fsS "http://127.0.0.1:${port}/metrics" | awk -v m="$1" '$1 == m { print $2; exit }'
-  kill "${pf}" 2>/dev/null || true
+  local pod port value best=""
+  for pod in $(kc -n dbaas-system get pods -l app.kubernetes.io/name=drain-guard -o jsonpath='{.items[*].metadata.name}'); do
+    port=$((28000 + RANDOM % 1000))
+    kc -n dbaas-system port-forward "pod/${pod}" "${port}:8080" >/dev/null 2>&1 &
+    local pf=$!
+    for _ in $(seq 1 50); do curl -fsS -o /dev/null "http://127.0.0.1:${port}/metrics" 2>/dev/null && break; sleep 0.2; done
+    value="$(curl -fsS "http://127.0.0.1:${port}/metrics" 2>/dev/null | awk -v m="$1" '$1 == m { print $2; exit }')"
+    kill "${pf}" 2>/dev/null || true
+    if [[ -n "${value}" ]] && { [[ -z "${best}" ]] || awk -v a="${value}" -v b="${best}" 'BEGIN { exit !(a > b) }'; }; then best="${value}"; fi
+  done
+  printf '%s\n' "${best:-0}"
 }
 
 # eviction <inst> <pod> [dry-run]: asks the eviction API for one pod. Prints its answer.
