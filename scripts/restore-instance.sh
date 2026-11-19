@@ -83,6 +83,17 @@ manifest="$(kc -n "${ns}" get mariadb "${instance}" -o json | jq \
 if kc -n "${ns}" get mariadb "${restore}" >/dev/null 2>&1; then
   die "${ns}/${restore} already exists: delete it or choose another name"
 fi
+
+# The restored data carries the source's root account, so the new instance must use the same root
+# password. A freshly generated one does not match: the operator and the agent cannot log in, the
+# liveness probe fails and the pods crash-loop. Copy the source's Secret under the new name; the
+# operator does not regenerate a Secret that exists. Applying again refreshes it after a rotation.
+src_secret="$(kc -n "${ns}" get mariadb "${instance}" -o jsonpath='{.spec.rootPasswordSecretKeyRef.name}')"
+[[ -n "${src_secret}" ]] || die "${ns}/${instance} has no rootPasswordSecretKeyRef"
+kc -n "${ns}" get secret "${src_secret}" -o json | jq --arg name "${restore}-root" --arg source "${instance}" '
+  {apiVersion: "v1", kind: "Secret", type: .type, data: .data,
+   metadata: {name: $name, labels: {"app.kubernetes.io/part-of": "dbaas", "dbaas.local/restore-of": $source}}}' |
+  kc -n "${ns}" apply -f - >/dev/null
 printf '%s\n' "${manifest}" | kc -n "${ns}" apply -f - >/dev/null
 echo "restoring ${ns}/${instance} to ${target} into ${restore}"
 
