@@ -108,6 +108,6 @@ releases:
       - db-{{ $name }}/{{ $name }}
 {{- end }}
     values:
-      - {{ dict "name" $name "engine" $inst.engine "image" (env "CANARY_IMAGE" | default "dbaas/db-canary:dev") "imagePullSecrets" (dig "registry" "pullSecrets" (list) $platform) "user" (ternary "canary" "canary" true) "database" "dbaas_canary" "port" (ternary 3306 5432 (eq $inst.engine "mariadb")) "caSecret" (printf "%s-ca%s" $name (ternary "-bundle" "" (eq $inst.engine "mariadb"))) | toJson }}
+      - {{ dict "name" $name "engine" $inst.engine "image" (env "CANARY_IMAGE" | default "dbaas/db-canary:dev") "imagePullSecrets" (dig "registry" "pullSecrets" (list) $platform) "replicas" (dig "systemReplicas" 2 $platform) "user" (ternary "canary" "canary" true) "database" "dbaas_canary" "port" (ternary 3306 5432 (eq $inst.engine "mariadb")) "caSecret" (printf "%s-ca%s" $name (ternary "-bundle" "" (eq $inst.engine "mariadb"))) | toJson }}
 {{- end }}
 {{- end }}
