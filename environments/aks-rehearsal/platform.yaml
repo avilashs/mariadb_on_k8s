@@ -26,6 +26,10 @@ backupStore:
   credentialsNamespace: object-store
   credentialsSecret: test-object-store-credentials
 
+# The rehearsal has one system node, so the operators run one replica each (their replicas
+# repel each other with required anti-affinity). kind and production keep the default of two or more.
+systemReplicas: 1
+
 registry:
   # Private registry of the rehearsal. The pull secret holds the admin credential and is created
   # by scripts/ensure-registry-secret.sh from environment variables; it is never committed.

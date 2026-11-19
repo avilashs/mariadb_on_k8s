@@ -58,6 +58,7 @@ releases:
       - mariadb-system/mariadb-operator-crds
     values:
       - values/mariadb-operator.yaml
+      - {{ dict "ha" (dict "replicas" (dig "systemReplicas" 2 $platform)) "webhook" (dict "ha" (dict "replicas" (dig "systemReplicas" 2 $platform))) "certController" (dict "ha" (dict "replicas" (dig "systemReplicas" 2 $platform))) | toJson }}
 
 {{- if eq (dig "monitoring" "install" false $platform) true }}
   - name: {{ dig "monitoring" "prometheusRelease" "kube-prometheus-stack" $platform }}
@@ -90,6 +91,7 @@ releases:
     needs: {{ toJson $base }}
     values:
       - values/cloudnative-pg.yaml
+      - {{ dict "replicaCount" (dig "systemReplicas" 2 $platform) | toJson }}
 
   - name: barman-cloud
     namespace: cnpg-system
@@ -102,6 +104,7 @@ releases:
       - cnpg-system/cloudnative-pg
     values:
       - values/barman-cloud.yaml
+      - {{ dict "replicaCount" (dig "systemReplicas" 2 $platform) | toJson }}
 
   # The alert rules of section 7.2, as PrometheusRule objects (phase 8).
   - name: db-alerts
