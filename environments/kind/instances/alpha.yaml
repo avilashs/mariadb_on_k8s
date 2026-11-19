@@ -10,3 +10,5 @@ access:
       owner: orders_app
 backup:
   enabled: true
+  # Short, so the point in time recovery suite does not wait long for the archive.
+  binlogFlushMinutes: 1

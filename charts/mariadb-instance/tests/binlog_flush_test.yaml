@@ -1,0 +1,105 @@
+suite: binary log rotation for point in time recovery
+templates:
+  - templates/binlog-flush.yaml
+values:
+  - ../ci/nvme.yaml
+tests:
+  - it: renders nothing when backups are disabled
+    set:
+      backup.enabled: false
+      nodeClass: kind-pv2
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders a role, a RELOAD-only grant and a CronJob when backups are enabled
+    set:
+      backup.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 3
+
+  - it: the grant holds RELOAD and nothing else
+    set:
+      backup.enabled: true
+    documentSelector:
+      path: kind
+      value: Grant
+    asserts:
+      - equal:
+          path: spec.privileges
+          value: ["RELOAD"]
+      - equal:
+          path: spec.database
+          value: "*"
+
+  - it: the role reads its password from a Secret created outside the chart
+    set:
+      backup.enabled: true
+    documentSelector:
+      path: kind
+      value: User
+    asserts:
+      - equal:
+          path: spec.passwordSecretKeyRef.key
+          value: password
+      - matchRegex:
+          path: spec.passwordSecretKeyRef.name
+          pattern: "-binlog-flush-credentials$"
+
+  - it: the job runs every five minutes by default and never overlaps itself
+    set:
+      backup.enabled: true
+    documentSelector:
+      path: kind
+      value: CronJob
+    asserts:
+      - equal:
+          path: spec.schedule
+          value: "*/5 * * * *"
+      - equal:
+          path: spec.concurrencyPolicy
+          value: Forbid
+
+  - it: the interval is a value
+    set:
+      backup.enabled: true
+      backup.binlogFlushMinutes: 1
+    documentSelector:
+      path: kind
+      value: CronJob
+    asserts:
+      - equal:
+          path: spec.schedule
+          value: "*/1 * * * *"
+
+  - it: the job rotates the log off the replicas, verified over TLS, as a non-root user
+    set:
+      backup.enabled: true
+    documentSelector:
+      path: kind
+      value: CronJob
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args
+          content: --execute=FLUSH NO_WRITE_TO_BINLOG BINARY LOGS
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args
+          content: --ssl-verify-server-cert
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.securityContext.runAsNonRoot
+          value: true
+
+  - it: the job is not a database and never tolerates the database taint
+    set:
+      backup.enabled: true
+    documentSelector:
+      path: kind
+      value: CronJob
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.nodeSelector
+          value:
+            pool: system
+      - notExists:
+          path: spec.jobTemplate.spec.template.spec.tolerations

@@ -1,0 +1,130 @@
+{{- /*
+Binary log rotation for point in time recovery (PLAN.md phase 5).
+
+The mariadb-operator agent archives only CLOSED binary logs, once every 10 minutes, and it
+never rotates the active one. The last recoverable time of the PointInTimeRecovery object is
+built from the base backup's GTID forward through the archived logs, so while the log holding
+that GTID is still open the status does not move, and a quiet instance can sit on an old
+recoverable time for as long as the log stays open.
+
+This CronJob closes the active log on a schedule, so the archive trails the present by at most
+backup.binlogFlushMinutes plus the agent's 10 minute cycle. FLUSH NO_WRITE_TO_BINLOG keeps the
+rotation off the replicas. It runs as a role that holds only RELOAD. The role's Secret is created
+once by hack/instances-up.sh (scripts/ensure-secret.sh); no secret value is in this chart.
+*/ -}}
+{{- if .Values.backup.enabled }}
+{{- $name := include "dbaas.instanceName" . -}}
+{{- $ns := printf "db-%s" $name -}}
+{{- $role := "binlog_flush" -}}
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: User
+metadata:
+  name: {{ $name }}-binlog-flush
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/part-of: dbaas
+    app.kubernetes.io/instance: {{ $name | quote }}
+    dbaas.local/engine: mariadb
+spec:
+  mariaDbRef:
+    name: {{ $name }}
+  name: {{ $role }}
+  passwordSecretKeyRef:
+    name: {{ $name }}-binlog-flush-credentials
+    key: password
+  maxUserConnections: 2
+---
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: Grant
+metadata:
+  name: {{ $name }}-binlog-flush
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/part-of: dbaas
+    app.kubernetes.io/instance: {{ $name | quote }}
+    dbaas.local/engine: mariadb
+spec:
+  mariaDbRef:
+    name: {{ $name }}
+  privileges:
+    - RELOAD
+  database: "*"
+  table: "*"
+  username: {{ $role }}
+  host: "%"
+  grantOption: false
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $name }}-binlog-flush
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/part-of: dbaas
+    app.kubernetes.io/instance: {{ $name | quote }}
+    dbaas.local/engine: mariadb
+spec:
+  schedule: {{ printf "*/%d * * * *" (int .Values.backup.binlogFlushMinutes) | quote }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 120
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 120
+      ttlSecondsAfterFinished: 900
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/part-of: dbaas
+            app.kubernetes.io/instance: {{ $name | quote }}
+            dbaas.local/binlog-flush: "true"
+        spec:
+          restartPolicy: Never
+          nodeSelector:
+            {{- toYaml .Values.backup.binlogFlushNodeSelector | nindent 12 }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: flush
+              image: {{ include "dbaas.image" . | quote }}
+              command: ["mariadb"]
+              args:
+                - --host={{ $name }}-primary.{{ $ns }}.svc
+                - --user={{ $role }}
+                - --ssl
+                - --ssl-ca=/etc/ca/ca.crt
+                - --ssl-verify-server-cert
+                - --execute=FLUSH NO_WRITE_TO_BINLOG BINARY LOGS
+              env:
+                - name: MYSQL_PWD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $name }}-binlog-flush-credentials
+                      key: password
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  cpu: 100m
+                  memory: 64Mi
+              volumeMounts:
+                - name: ca
+                  mountPath: /etc/ca
+                  readOnly: true
+          volumes:
+            - name: ca
+              secret:
+                secretName: {{ $name }}-ca-bundle
+{{- end }}

@@ -79,7 +79,14 @@ backup:
   schedule: "17 2 * * *"        # daily full backup, cron in UTC
   retention: 720h               # backups older than this are removed
   compression: gzip             # none, bzip2, gzip or zstd
-  binlogArchiveTimeout: 1m      # bounds the newest changes a point in time restore cannot reach yet
+  # The longest one archival run may take (the agent's own bound, default 1h upstream). It is NOT
+  # how often logs are archived: the agent runs every 10 minutes and archives closed logs only.
+  binlogArchiveTimeout: 10m
+  # A CronJob closes the active binary log this often (templates/binlog-flush.yaml), so the archive
+  # trails the present by at most this plus the agent's 10 minute cycle. Whole minutes, 1 to 59.
+  binlogFlushMinutes: 5
+  binlogFlushNodeSelector:
+    pool: system                # the flush job is not a database: it never lands on a database node
 
 monitoring:
   enabled: true

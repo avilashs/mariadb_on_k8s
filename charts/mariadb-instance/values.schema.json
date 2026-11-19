@@ -110,7 +110,9 @@
         "schedule": {"type": "string", "minLength": 9},
         "retention": {"type": "string", "pattern": "^[0-9]+(h|m|s)$"},
         "compression": {"type": "string", "enum": ["none", "bzip2", "gzip", "zstd"]},
-        "binlogArchiveTimeout": {"type": "string", "pattern": "^[0-9]+(s|m|h)$"}
+        "binlogArchiveTimeout": {"type": "string", "pattern": "^[0-9]+(s|m|h)$"},
+        "binlogFlushMinutes": {"type": "integer", "minimum": 1, "maximum": 59},
+        "binlogFlushNodeSelector": {"type": "object", "additionalProperties": {"type": "string"}}
       }
     },
     "monitoring": {

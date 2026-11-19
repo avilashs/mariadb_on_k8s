@@ -95,8 +95,8 @@ metadata:
 spec:
   physicalBackupRef:
     name: {{ $name }}-backup
-  # Binary logs are archived at least this often. It bounds the window of changes that a
-  # point in time restore cannot reach yet.
+  # The longest one archival run may take. Archival itself runs every 10 minutes, closed logs only;
+  # templates/binlog-flush.yaml closes the active log on a schedule.
   archiveTimeout: {{ .Values.backup.binlogArchiveTimeout | quote }}
   storage:
     s3:

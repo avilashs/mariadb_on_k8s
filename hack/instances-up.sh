@@ -51,6 +51,11 @@ for file in "${instances_dir}"/*.yaml; do
   if [[ "$(yq -r '.backup.enabled // false' "${file}")" == "true" ]]; then
     "${ROOT}/scripts/ensure-backup-credentials.sh" "${context}" "db-$(yq -r '.name' "${file}")" \
       "${ROOT}/environments/${ENV}/platform.yaml"
+    # MariaDB only: the role that closes the active binary log for point in time recovery.
+    if [[ "$(yq -r '.engine' "${file}")" == "mariadb" ]]; then
+      "${ROOT}/scripts/ensure-secret.sh" "${context}" "db-$(yq -r '.name' "${file}")" \
+        "$(yq -r '.name' "${file}")-binlog-flush-credentials" password >/dev/null
+    fi
   fi
 done
 
