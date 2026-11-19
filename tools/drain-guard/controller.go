@@ -32,6 +32,7 @@ type Guard struct {
 	mu            sync.Mutex
 	lastRequested map[string]time.Time
 	blocked       map[string]bool
+	pendingSince  map[string]time.Time // when a switchover was first seen pending
 }
 
 // NewGuard returns a guard with empty state.
@@ -39,6 +40,7 @@ func NewGuard(c client.Client, r client.Reader, drainKeys map[string]bool, m *gu
 	return &Guard{
 		Client: c, Reader: r, DrainKeys: drainKeys, Metrics: m, Recorder: rec,
 		Now: time.Now, lastRequested: map[string]time.Time{}, blocked: map[string]bool{},
+		pendingSince: map[string]time.Time{},
 	}
 }
 
@@ -143,12 +145,53 @@ func (g *Guard) Reconcile(ctx context.Context) error {
 		if s == nil {
 			continue
 		}
+		if err := g.abortStalledSwitchover(ctx, s, obj); err != nil {
+			return err
+		}
 		plan := planEvacuation(*s, nodes, g.DrainKeys, g.Now(), g.lastRequestedAt(s))
 		if err := g.act(ctx, s, obj, plan); err != nil {
 			return err
 		}
 	}
 	g.Metrics.setBlocked(g.blockedCount())
+	return nil
+}
+
+// abortStalledSwitchover points the desired primary back at the current one when a switchover
+// has been pending longer than switchoverTimeout. The operator then stops waiting and the
+// primary becomes writable again. The drain waits; nothing is forced.
+func (g *Guard) abortStalledSwitchover(ctx context.Context, s *InstanceState, obj *unstructured.Unstructured) error {
+	k := key(s.Namespace, s.Name)
+	g.mu.Lock()
+	if !s.switchoverPending() {
+		delete(g.pendingSince, k)
+		g.mu.Unlock()
+		return nil
+	}
+	since, seen := g.pendingSince[k]
+	if !seen {
+		g.pendingSince[k] = g.Now()
+		g.mu.Unlock()
+		return nil
+	}
+	g.mu.Unlock()
+	if !switchoverStalled(since, g.Now(), switchoverTimeout) || s.CurrentPrimary < 0 || s.DesiredPrimary == s.CurrentPrimary {
+		return nil
+	}
+	patch, _ := json.Marshal(map[string]any{"spec": map[string]any{"replication": map[string]any{
+		"primary": map[string]any{"podIndex": s.CurrentPrimary},
+	}}})
+	if err := g.Client.Patch(ctx, obj, client.RawPatch(types.MergePatchType, patch)); err != nil {
+		return fmt.Errorf("aborting the stalled switchover of %s: %w", k, err)
+	}
+	g.mu.Lock()
+	delete(g.pendingSince, k)
+	g.lastRequested[k] = g.Now()
+	g.mu.Unlock()
+	g.Recorder.Eventf(runtime.Object(obj), corev1.EventTypeWarning, "SwitchoverAborted",
+		"the switchover to pod index %d had been pending for %s: moving the primary back to %d; the drain waits",
+		s.DesiredPrimary, g.Now().Sub(since).Round(time.Second), s.CurrentPrimary)
+	g.Metrics.observeEvacuation(s.Namespace, "aborted", 0)
 	return nil
 }
 

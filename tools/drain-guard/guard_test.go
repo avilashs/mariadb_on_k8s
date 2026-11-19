@@ -223,3 +223,16 @@ func TestIndexOfParsesOrdinals(t *testing.T) {
 		}
 	}
 }
+
+func TestSwitchoverIsStalledOnlyPastTheTimeout(t *testing.T) {
+	since := t0
+	if switchoverStalled(since, t0.Add(119*time.Second), switchoverTimeout) {
+		t.Error("a switchover two minutes minus a second old is not stalled yet")
+	}
+	if !switchoverStalled(since, t0.Add(2*time.Minute), switchoverTimeout) {
+		t.Error("a switchover exactly at the timeout is stalled")
+	}
+	if switchoverStalled(time.Time{}, t0.Add(time.Hour), switchoverTimeout) {
+		t.Error("a switchover never seen pending is not stalled")
+	}
+}

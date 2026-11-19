@@ -10,6 +10,17 @@ import (
 	"k8s.io/apimachinery/pkg/util/version"
 )
 
+// switchoverTimeout bounds how long a planned switchover may stay pending. The operator
+// makes the primary read-only while it waits for the replicas to catch up; an unbounded wait
+// holds writes. Past this bound the guard aborts the switchover and the drain waits instead.
+const switchoverTimeout = 2 * time.Minute
+
+// switchoverStalled reports whether a switchover that has been pending since 'since' has
+// run past the timeout at 'now'.
+func switchoverStalled(since, now time.Time, timeout time.Duration) bool {
+	return !since.IsZero() && now.Sub(since) >= timeout
+}
+
 // evacuationCooldown is how long an evacuation request suppresses another one for the same
 // instance (PLAN.md phase 7, step 2.1).
 const evacuationCooldown = 60 * time.Second
