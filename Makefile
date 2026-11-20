@@ -157,6 +157,10 @@ endif
 kind-up: ## Create the kind test cluster with its node classes (idempotent)
 	@$(ROOT)/hack/kind-up.sh
 
+.PHONY: kind-clean-volumes
+kind-clean-volumes: ## Remove the kind volumes that nothing uses (Released); run before the long suites
+	@$(ROOT)/hack/kind-clean-volumes.sh
+
 .PHONY: kind-down
 kind-down: ## Delete the kind test cluster
 	@$(ROOT)/hack/kind-down.sh
