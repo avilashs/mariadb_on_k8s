@@ -86,10 +86,22 @@ check_replica_reseeds_after_pod_and_volume_loss() {
 # restored_marker <restored-instance> <pod> <label>: how many rows carry the label. A restored instance
 # lives in the source's namespace (db-${INST}), not in db-<its own name> as the lib helpers assume.
 restored_marker() {
-  local password
-  password="$(kc -n "${NS}" get secret "$1-root" -o jsonpath='{.data.password}' | base64 -d)"
-  kc -n "${NS}" exec "$2" -c mariadb -- mariadb --ssl -uroot -p"${password}" -N -B \
-    -e "SELECT COUNT(*) FROM dbaas_marker.markers WHERE label = '$3'" 2>/dev/null
+  # The restored instance can still be settling when the restore returns (a pod restarting, the
+  # primary not yet reported), so a failed lookup is retried for up to two minutes. It prints the
+  # count, or nothing when the instance never answered.
+  local password primary out deadline=$((SECONDS + 120))
+  while ((SECONDS < deadline)); do
+    password="$(kc -n "${NS}" get secret "$1-root" -o jsonpath='{.data.password}' 2>/dev/null | base64 -d)"
+    primary="$(kc -n "${NS}" get mariadb "$1" -o jsonpath='{.status.currentPrimary}' 2>/dev/null)"
+    if [[ -n "${password}" && -n "${primary}" ]] &&
+      out="$(kc -n "${NS}" exec "${primary}" -c mariadb -- mariadb --ssl -uroot -p"${password}" -N -B \
+        -e "SELECT COUNT(*) FROM dbaas_marker.markers WHERE label = '$2'" 2>/dev/null)" && [[ -n "${out}" ]]; then
+      printf '%s\n' "${out}"
+      return 0
+    fi
+    sleep 5
+  done
+  return 1
 }
 
 check_point_in_time_restore() {
@@ -103,10 +115,9 @@ check_point_in_time_restore() {
   RESTORES+=("${NS#db-}:${restored}")
   KUBE_CONTEXT="${CONTEXT}" "${ROOT}/scripts/restore-instance.sh" "${INST}" "${target}" "${restored}" >/dev/null ||
     { echo "restore of ${INST} to ${target} failed"; return 1; }
-  primary="$(kc -n "${NS}" get mariadb "${restored}" -o jsonpath='{.status.currentPrimary}')"
-  [[ "$(restored_marker "${restored}" "${primary}" "A-${INST}-${RUN_ID}")" == "1" ]] ||
+  [[ "$(restored_marker "${restored}" "A-${INST}-${RUN_ID}")" == "1" ]] ||
     { echo "restored instance lacks A (before ${target})"; return 1; }
-  if [[ "$(restored_marker "${restored}" "${primary}" "B-${INST}-${RUN_ID}")" == "1" ]]; then
+  if [[ "$(restored_marker "${restored}" "B-${INST}-${RUN_ID}")" == "1" ]]; then
     echo "restored instance has B (written after ${target})"
     return 1
   fi
@@ -117,14 +128,18 @@ check_restore_drill_exits_zero() {
     { echo "scripts/restore-drill.sh ${INST} did not exit 0"; return 1; }
 }
 
-for INST in alpha beta; do
+# want <case>: true when ONLY is unset or lists the case (backup reseed pitr drill); INSTANCES restricts the
+# instances, e.g. ONLY="pitr" INSTANCES="beta".
+want() { [[ -z "${ONLY:-}" || " ${ONLY} " == *" $1 "* ]]; }
+
+for INST in ${INSTANCES:-alpha beta}; do
   NS="db-${INST}"
   node_class="$(kc -n "${NS}" get mariadb "${INST}" -o jsonpath='{.metadata.labels.dbaas\.local/node-class}')"
   log "backup-restore acceptance for ${INST} on ${node_class}"
-  check "[${INST}] an on-demand backup completes and its object exists in the bucket" check_on_demand_backup_in_bucket
-  check "[${INST}] a replica that loses its pod and volume re-seeds and rejoins by itself" check_replica_reseeds_after_pod_and_volume_loss
-  check "[${INST}] point in time restore to T has A and not B" check_point_in_time_restore
-  check "[${INST}] scripts/restore-drill.sh exits 0" check_restore_drill_exits_zero
+  want backup && check "[${INST}] an on-demand backup completes and its object exists in the bucket" check_on_demand_backup_in_bucket
+  want reseed && check "[${INST}] a replica that loses its pod and volume re-seeds and rejoins by itself" check_replica_reseeds_after_pod_and_volume_loss
+  want pitr && check "[${INST}] point in time restore to T has A and not B" check_point_in_time_restore
+  want drill && check "[${INST}] scripts/restore-drill.sh exits 0" check_restore_drill_exits_zero
 done
 
 summary
