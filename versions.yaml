@@ -78,3 +78,10 @@ crdSources:
   - versionFrom: .platform.kubePrometheusStack.version
     chart: .platform.kubePrometheusStack.chart
     helmSet: ""
+
+# The multi-LLM query optimizer, an add-on of the platform (charts/db-query-optimizer). Pinned by commit; the image
+# is built from this commit by hack/build-query-optimizer.sh.
+queryOptimizer:
+  repository: https://github.com/avilashs/query_optimizer
+  commit: 8f5454d9327188e109cf8ee74a857f7582614ab0
+  python: "3.12"                  # the base image's Python, which the wheels are fetched for
