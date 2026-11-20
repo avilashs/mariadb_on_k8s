@@ -115,8 +115,10 @@ check_point_in_time_restore() {
   RESTORES+=("${NS#db-}:${restored}")
   KUBE_CONTEXT="${CONTEXT}" "${ROOT}/scripts/restore-instance.sh" "${INST}" "${target}" "${restored}" >/dev/null ||
     { echo "restore of ${INST} to ${target} failed"; return 1; }
-  [[ "$(restored_marker "${restored}" "A-${INST}-${RUN_ID}")" == "1" ]] ||
-    { echo "restored instance lacks A (before ${target})"; return 1; }
+  local count_a
+  count_a="$(restored_marker "${restored}" "A-${INST}-${RUN_ID}")"
+  [[ "${count_a}" == "1" ]] ||
+    { echo "restored instance lacks A (before ${target}): count=[${count_a}] primary=[$(kc -n "${NS}" get mariadb "${restored}" -o jsonpath='{.status.currentPrimary}')]"; return 1; }
   if [[ "$(restored_marker "${restored}" "B-${INST}-${RUN_ID}")" == "1" ]]; then
     echo "restored instance has B (written after ${target})"
     return 1
