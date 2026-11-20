@@ -45,3 +45,9 @@ not target OpenShift.
 | Date | Change | Result |
 |---|---|---|
 | 2026-11-18 | mariadb-operator `26.10.2` installed on the kind test cluster (Kubernetes 1.36.4) | 7 of 7 phase 2 checks pass, including leader loss |
+
+## Add-ons
+
+| Component | Pin | Notes | Source |
+|---|---|---|---|
+| Query optimizer | commit `8f5454d93271` of `avilashs/query_optimizer` (`versions.yaml`, `queryOptimizer`) | Python 3.12 image built offline by `hack/build-query-optimizer.sh`; connectors for MariaDB, MySQL and PostgreSQL are installed. Tested here by `make unit` (chart tests) and `tests/e2e/query-optimizer.sh` | [repository](https://github.com/avilashs/query_optimizer) |
