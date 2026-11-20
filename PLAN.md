@@ -107,7 +107,7 @@ The namespace itself, with its labels and quota, comes from the small `db-namesp
 This sequence is the core of R6. It is identical for a Kubernetes upgrade, a monthly image rotation, an autoscaler scale-down and a manual `kubectl drain`.
 
 1. The node is cordoned (or receives a disruption taint from the autoscaler).
-2. `drain-guard` sees that the node hosts the primary of instance X. It picks the best healthy replica on a schedulable node and patches `spec.replication.primary.podIndex`. (For PostgreSQL, CloudNativePG does this step itself.)
+2. `drain-guard` sees that the node hosts the primary of instance X. It picks the best healthy replica on a schedulable node and patches `spec.replication.primary.podIndex`. (For PostgreSQL, CloudNativePG does this step itself.) **Correction (kind, 2026-11-20): it does not; drain-guard requests the CloudNativePG switchover for PostgreSQL too. See docs/deviations.md.**
 3. Meanwhile the drain tries to evict the primary pod. The eviction guard answers "not now" (HTTP 429), and also requests the switchover if step 2 has not happened yet. Every drain tool retries on 429.
 4. The operator runs a planned switchover: lock writes, wait for the chosen replica to catch up, promote it, repoint the Services, demote the old primary. Writes pause for a few seconds; nothing is lost.
 5. The old primary is now a replica, so the guard lets its eviction through. The instance's budget allows it as long as no other pod of X is away.
@@ -605,7 +605,7 @@ With one pool per zone and surge 1, AKS adds the new node in the right zone firs
    | metrics | `monitoring.enablePodMonitor: false` (deprecated) and a hand-written `PodMonitor` on port `metrics` selecting `cnpg.io/cluster: <name>` |
    | Services | CloudNativePG creates `<name>-rw` and `<name>-ro`. Add `<name>-primary` and `<name>-secondary` through the cluster's managed-services feature, so applications see the same names for both engines. |
 
-3. No `drain-guard` here. CloudNativePG keeps its own budgets and switches the primary away ahead of a drain. The namespace label `dbaas.local/engine=postgres` keeps the MariaDB webhook out. The proof is the unchanged `e2e/drain` suite.
+3. ~~No `drain-guard` here.~~ **Corrected by the kind test:** CloudNativePG keeps its primary budget but does not switch the primary away ahead of a drain, so a drain of the primary's node blocks. drain-guard has a PostgreSQL step that requests the switchover (`tools/drain-guard/postgres.go`, proof: `tests/e2e/drain.sh` case j). The namespace label `dbaas.local/engine=postgres` still keeps the MariaDB webhook out.
 4. Canary: same binary, PostgreSQL driver. Alerts: the engine-neutral ones apply unchanged; add the PostgreSQL group from section 7.2, starting from the upstream sample rules. Dashboard: the upstream one from `cloudnative-pg/grafana-dashboards`, with `namespace` as the instance variable.
 5. Extend `tests/e2e/lib.sh` with the PostgreSQL branch of every helper. Suites stay untouched.
 6. Admission policy for `Cluster`: at least 2 instances, required anti-affinity, budgets not disabled.
