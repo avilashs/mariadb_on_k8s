@@ -81,6 +81,8 @@ instead of failing in the cluster.
 {{- /* The query optimizer EXPLAINs real statements, which MariaDB keeps only in these history tables (their
        consumers are off by default; the digest table holds just the statement with ? in place of values). */ -}}
 {{- if (.Values.queryOptimizer | default dict).enabled -}}
+{{- /* The history consumers only fill while events_statements_current is on: it is their parent. */ -}}
+{{- $_ := set $baseline "performance_schema_consumer_events_statements_current" "ON" -}}
 {{- $_ := set $baseline "performance_schema_consumer_events_statements_history" "ON" -}}
 {{- $_ := set $baseline "performance_schema_consumer_events_statements_history_long" "ON" -}}
 {{- end -}}

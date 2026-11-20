@@ -20,3 +20,6 @@ tests:
       - matchRegex:
           path: spec.myCnf
           pattern: "performance_schema_consumer_events_statements_history_long=ON"
+      - matchRegex:
+          path: spec.myCnf
+          pattern: "performance_schema_consumer_events_statements_current=ON"

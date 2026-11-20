@@ -93,4 +93,6 @@ helmfile_sync --selector stage=grants
 wait_instances grant
 log "syncing the canaries for ENV=${ENV}"
 helmfile_sync --selector stage=canary
+log "syncing the query optimizers for ENV=${ENV}"
+helmfile_sync --selector stage=optimizer
 log "instances for ENV=${ENV} are in place"

@@ -104,6 +104,20 @@ kubectl -n db-alpha exec <pod> -- qopt history -c /config/config.yaml        # t
 Reports are also written to the claim, under `reports/`, as JSON and markdown (`latest.*`). Add a `notifiers` entry
 (`slack`, `teams`, `webhook`, `email`) to be told when something is found.
 
+## Tested on kind
+
+`tests/e2e/query-optimizer.sh` (alpha = MariaDB, ledger = PostgreSQL, offline mock model) checks that:
+
+* in the default notify-only mode the job reports the slow query of a seeded workload and creates no index;
+* with god mode on and a canned "create an index" recommendation (score gate lowered to 0 for the test), no index
+  appears, because the job's account is read-only. Applying needs a separate writer account, which the platform does
+  not create; adding one is a deliberate step of stage 3 of the rollout above.
+
+Not tested: real model providers (no key exists in this environment), and the apply path with a writer account.
+
+Two things the real run found, both fixed: the mock provider needs a `model` field, and MariaDB fills the statement
+history tables only when `events_statements_current` is on too (it is the parent consumer).
+
 ## Limits
 
 * MariaDB's digest table has no CPU or memory columns, so "CPU" is wait time minus lock time and "memory" is a proxy

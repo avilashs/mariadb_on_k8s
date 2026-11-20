@@ -124,6 +124,8 @@ releases:
   - name: {{ $name }}-qopt
     namespace: db-{{ $name }}
     chart: ../charts/db-query-optimizer
+    # The data volume binds when the first job runs (WaitForFirstConsumer), so waiting for it would never end.
+    wait: false
     labels:
       stage: optimizer
     needs:

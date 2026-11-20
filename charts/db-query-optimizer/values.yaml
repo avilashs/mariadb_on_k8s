@@ -37,6 +37,7 @@ schemas: []                           # empty = the application schema only (the
 llms:
   - name: mock
     provider: mock
+    model: mock
 ranker:
   strategy: heuristic                 # llm = a judge model ranks the candidates; needs a provider with a key
 privacy:
