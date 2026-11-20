@@ -97,5 +97,11 @@ kc -n "${ns}" get secret "${src_secret}" -o json | jq --arg name "${restore}-roo
 printf '%s\n' "${manifest}" | kc -n "${ns}" apply -f - >/dev/null
 echo "restoring ${ns}/${instance} to ${target} into ${restore}"
 
+# Ready alone is not "restored to the target time": the instance can report Ready while it still holds
+# only the base backup, before the archived binary logs up to the target have been replayed. A reader
+# that trusts Ready then sees data that is older than the target (a table that was created after the
+# base backup is missing). Wait for the replay, then for Ready again, since the replay restarts pods.
+kc -n "${ns}" wait "mariadb/${restore}" --for=condition=BinlogsReplayed --timeout=1500s >/dev/null ||
+  die "${ns}/${restore}: the binary logs were not replayed to ${target}"
 kc -n "${ns}" wait "mariadb/${restore}" --for=condition=Ready --timeout=1500s >/dev/null
-echo "restored: ${ns}/${restore} is Ready at ${target}"
+echo "restored: ${ns}/${restore} is Ready at ${target}, binary logs replayed"
