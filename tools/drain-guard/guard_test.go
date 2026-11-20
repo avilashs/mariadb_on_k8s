@@ -356,3 +356,65 @@ func TestBaselineIsRequestedOncePerPrimaryChange(t *testing.T) {
 		t.Fatal("an instance with no baseline on record gets one")
 	}
 }
+
+func pgPods() []PodState {
+	return []PodState{
+		{Name: "ledger-1", Index: 1, Ready: true, NodeName: "n-a"},
+		{Name: "ledger-2", Index: 2, Ready: true, NodeName: "n-b"},
+		{Name: "ledger-3", Index: 3, Ready: true, NodeName: "n-c"},
+	}
+}
+
+func TestPostgresPrimaryOnADrainingNodeMovesToTheBestReplica(t *testing.T) {
+	drainingA := nodeA
+	drainingA.Unschedulable = true
+	s := pgInstanceState("db-ledger", "ledger", "ledger-1", "", pgPods())
+	plan := planEvacuation(s, nodesOf(drainingA, nodeB, nodeC), keys, t0, time.Time{})
+	if plan.Action != actionSwitch {
+		t.Fatalf("a PostgreSQL primary on a draining node must be moved, got %+v", plan)
+	}
+	// nodeB is newer than nodeC and the kubelets are equal: the same ordering as for MariaDB.
+	if plan.TargetIndex != 2 {
+		t.Fatalf("want the replica on the newest node (ledger-2), got index %d", plan.TargetIndex)
+	}
+}
+
+func TestPostgresPrimaryOnAHealthyNodeIsLeftAlone(t *testing.T) {
+	s := pgInstanceState("db-ledger", "ledger", "ledger-1", "", pgPods())
+	if plan := planEvacuation(s, nodesOf(nodeA, nodeB, nodeC), keys, t0, time.Time{}); plan.Action != actionIdle {
+		t.Fatalf("nothing to do while the primary's node is fine, got %+v", plan)
+	}
+}
+
+func TestPostgresSwitchoverUnderWayIsNotDoubled(t *testing.T) {
+	drainingA := nodeA
+	drainingA.Unschedulable = true
+	// status.targetPrimary differs from status.currentPrimary while CloudNativePG switches over.
+	s := pgInstanceState("db-ledger", "ledger", "ledger-1", "ledger-2", pgPods())
+	if plan := planEvacuation(s, nodesOf(drainingA, nodeB, nodeC), keys, t0, time.Time{}); plan.Action != actionPending {
+		t.Fatalf("a running switchover must not be requested again, got %+v", plan)
+	}
+}
+
+func TestPostgresDrainBlocksWhenNoReplicaCanTakeTheRole(t *testing.T) {
+	drainingA := nodeA
+	drainingA.Unschedulable = true
+	pods := pgPods()
+	pods[1].Ready = false
+	pods[2].Ready = false
+	s := pgInstanceState("db-ledger", "ledger", "ledger-1", "", pods)
+	if plan := planEvacuation(s, nodesOf(drainingA, nodeB, nodeC), keys, t0, time.Time{}); plan.Action != actionBlocked {
+		t.Fatalf("with no Ready replica the drain waits, got %+v", plan)
+	}
+}
+
+func TestPostgresInstanceStateReadsThePodOrdinals(t *testing.T) {
+	s := pgInstanceState("db-ledger", "ledger", "ledger-12", "ledger-3", nil)
+	if s.CurrentPrimary != 12 || s.DesiredPrimary != 3 {
+		t.Fatalf("want current 12 and desired 3, got %d and %d", s.CurrentPrimary, s.DesiredPrimary)
+	}
+	s = pgInstanceState("db-ledger", "ledger", "ledger-2", "", nil)
+	if s.DesiredPrimary != -1 || s.switchoverPending() {
+		t.Fatalf("no target means no switchover, got desired %d", s.DesiredPrimary)
+	}
+}

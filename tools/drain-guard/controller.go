@@ -175,6 +175,9 @@ func (g *Guard) Reconcile(ctx context.Context) error {
 			return err
 		}
 	}
+	if err := g.reconcilePostgres(ctx, nodes); err != nil {
+		return err
+	}
 	g.Metrics.setBlocked(g.blockedCount())
 	return nil
 }
