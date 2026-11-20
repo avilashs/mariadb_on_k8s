@@ -69,6 +69,14 @@ releases:
 {{- end }}
 
 {{- $own := index (index $inst "access" | default dict) "databases" | default list }}
+{{- /* The query optimizer add-on (charts/db-query-optimizer): opt-in per instance. It analyses one database:
+       the one named in the block, else the instance's first. */}}
+{{- $qo := index $inst "queryOptimizer" | default dict }}
+{{- $qoOn := index $qo "enabled" | default false }}
+{{- $qoDb := index $qo "database" | default (ternary (index (first $own) "name") "" (gt (len $own) 0)) }}
+{{- if and $qoOn (eq $qoDb "") }}
+{{- fail (printf "%s: queryOptimizer.enabled needs a database (queryOptimizer.database, or an entry in access.databases)" $file) }}
+{{- end }}
 {{- /* Every instance has the canary's database and user, whatever the file says (PLAN.md phase 6). */}}
 {{- $databases := concat $own (list (dict "name" "dbaas_canary" "owner" "canary")) }}
 {{- if eq $inst.engine "mariadb" }}
@@ -81,7 +89,7 @@ releases:
     needs:
       - db-{{ $name }}/{{ $name }}
     values:
-      - {{ dict "name" $name "stage" "users" "databases" $databases | toJson }}
+      - {{ dict "name" $name "stage" "users" "databases" $databases "readers" (ternary (list (dict "name" "qopt_reader" "secret" (printf "%s-qopt-credentials" $name) "databases" (list $qoDb))) (list) $qoOn) | toJson }}
 
   - name: {{ $name }}-grants
     namespace: db-{{ $name }}
@@ -91,7 +99,7 @@ releases:
     needs:
       - db-{{ $name }}/{{ $name }}-users
     values:
-      - {{ dict "name" $name "stage" "grants" "databases" $databases | toJson }}
+      - {{ dict "name" $name "stage" "grants" "databases" $databases "readers" (ternary (list (dict "name" "qopt_reader" "secret" (printf "%s-qopt-credentials" $name) "databases" (list $qoDb))) (list) $qoOn) | toJson }}
 {{- end }}
 
   # The canary measures the instance from a client's side (PLAN.md phase 6). It waits for
@@ -109,5 +117,23 @@ releases:
 {{- end }}
     values:
       - {{ dict "name" $name "engine" $inst.engine "image" (env "CANARY_IMAGE" | default "dbaas/db-canary:dev") "imagePullSecrets" (dig "registry" "pullSecrets" (list) $platform) "replicas" (dig "systemReplicas" 2 $platform) "user" (ternary "canary" "canary" true) "database" "dbaas_canary" "port" (ternary 3306 5432 (eq $inst.engine "mariadb")) "caSecret" (printf "%s-ca%s" $name (ternary "-bundle" "" (eq $inst.engine "mariadb"))) | toJson }}
+{{- if $qoOn }}
+
+  # The query optimizer (PLAN.md add-on): notify-only unless the block says godMode. It needs its account:
+  # the grants for MariaDB, the Cluster (which declares the role) for PostgreSQL.
+  - name: {{ $name }}-qopt
+    namespace: db-{{ $name }}
+    chart: ../charts/db-query-optimizer
+    labels:
+      stage: optimizer
+    needs:
+{{- if eq $inst.engine "mariadb" }}
+      - db-{{ $name }}/{{ $name }}-grants
+{{- else }}
+      - db-{{ $name }}/{{ $name }}
+{{- end }}
+    values:
+      - {{ merge (dict "name" $name "engine" $inst.engine "database" $qoDb "image" (env "QOPT_IMAGE" | default "dbaas/query-optimizer:dev") "imagePullSecrets" (dig "registry" "pullSecrets" (list) $platform)) (omit (deepCopy $qo) "enabled" "database") | toJson }}
+{{- end }}
 {{- end }}
 {{- end }}

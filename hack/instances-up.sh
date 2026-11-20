@@ -43,6 +43,10 @@ for file in "${instances_dir}"/*.yaml; do
   done < <(yq -r '.access.databases[]?.owner' "${file}")
   # The canary's role is on every instance (PLAN.md phase 6), so its Secret always exists.
   role_secret "${name}-canary-credentials" canary
+  # The query optimizer's read-only role, for the instances that opt in.
+  if [[ "$(yq -r '.queryOptimizer.enabled // false' "${file}")" == "true" ]]; then
+    role_secret "${name}-qopt-credentials" qopt_reader
+  fi
 done
 
 # Instances with backups need the object store credentials in their namespace.

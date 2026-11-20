@@ -9,3 +9,6 @@ access:
   databases:
     - name: ledger
       owner: ledger_app
+queryOptimizer:
+  enabled: true
+  database: ledger

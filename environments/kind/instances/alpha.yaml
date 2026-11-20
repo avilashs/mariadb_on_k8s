@@ -12,3 +12,8 @@ backup:
   enabled: true
   # Short, so the point in time recovery suite does not wait long for the archive.
   binlogFlushMinutes: 1
+# The query optimizer, notify-only, with the offline mock provider (the chart default): this proves the wiring on
+# kind without a model key. A real environment lists real providers (docs/query-optimizer.md).
+queryOptimizer:
+  enabled: true
+  database: orders

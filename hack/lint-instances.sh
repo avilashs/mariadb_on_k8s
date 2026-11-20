@@ -41,15 +41,32 @@ for file in "${files[@]}"; do
   chart="${ROOT}/charts/mariadb-instance"
   [[ "$(yq -r '.engine' "${file}")" == "postgres" ]] && chart="${ROOT}/charts/postgres-instance"
   name="$(yq -r '.name' "${file}")"
+  engine="$(yq -r '.engine' "${file}")"
+  qo_on="$(yq -r '.queryOptimizer.enabled // false' "${file}")"
+  qo_db="$(yq -r '.queryOptimizer.database // .access.databases[0].name // ""' "${file}")"
+  if [[ "${qo_on}" == "true" && -z "${qo_db}" ]]; then
+    printf '  FAIL  %s\n          queryOptimizer.enabled needs a database\n' "${file#"${ROOT}"/}"
+    failures=$((failures + 1))
+    continue
+  fi
   access="${rendered}.access.yaml"
   : >"${access}"
   access_ok=1
   if [[ "$(yq -r '.access.databases | length' "${file}")" != "0" && "$(yq -r '.engine' "${file}")" == "mariadb" ]]; then
     for stage in users grants; do
       yq -n ".name = \"${name}\" | .stage = \"${stage}\" | .databases = load(\"${file}\").access.databases" >"${merged}.${stage}"
+      if [[ "${qo_on}" == "true" ]]; then
+        yq -i ".readers = [{\"name\": \"qopt_reader\", \"secret\": \"${name}-qopt-credentials\", \"databases\": [\"${qo_db}\"]}]" "${merged}.${stage}"
+      fi
       helm template "${name}-${stage}" "${ROOT}/charts/db-access" --namespace "db-${name}" \
         --values "${merged}.${stage}" >>"${access}" 2>>"${rendered}.err" || access_ok=0
     done
+  fi
+  # The optimizer's own chart, with the block of the instance file (minus the switches the helmfile consumes).
+  if [[ "${qo_on}" == "true" ]]; then
+    yq -n "(load(\"${file}\").queryOptimizer | del(.enabled) | del(.database)) * {\"name\": \"${name}\", \"engine\": \"${engine}\", \"database\": \"${qo_db}\", \"image\": \"dbaas/query-optimizer:ci\"}" >"${merged}.qopt"
+    helm template "${name}-qopt" "${ROOT}/charts/db-query-optimizer" --namespace "db-${name}" \
+      --values "${merged}.qopt" >>"${access}" 2>>"${rendered}.err" || access_ok=0
   fi
   if ((access_ok == 1)) && helm template "${name}" "${chart}" --namespace "db-${name}" \
       --values "${merged}" >"${rendered}" 2>"${rendered}.err" &&
