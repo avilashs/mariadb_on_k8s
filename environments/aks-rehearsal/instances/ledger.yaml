@@ -1,0 +1,10 @@
+# A small PostgreSQL instance (CloudNativePG) on the Premium SSD v2 class of the AKS rehearsal.
+name: ledger
+engine: postgres
+size: small
+replicas: 1
+nodeClass: aks-pv2
+access:
+  databases:
+    - name: ledger
+      owner: ledger_app

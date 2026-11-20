@@ -35,7 +35,7 @@ passed only when its evidence is attached to the change record. Nothing here is 
 - [ ] The MariaDB exporter path (docs/deviations.md, phase 8): `mysql_up` reports 1 for every instance, and the
       replication and connection alerts see data.
 
-- [ ] PostgreSQL primary drain on real nodes: `tests/e2e/drain.sh` case j equivalent. The drain-guard switchover
+- [~] PostgreSQL primary drain on real nodes (rehearsal 2 passed on AKS, evidence in docs/deviations.md; repeat in staging): `tests/e2e/drain.sh` case j equivalent. The drain-guard switchover
       happens before the pod is evicted and the canary stays within PLAN.md 7.3.
 - [ ] Query optimizer (optional add-on): real model key in a Secret, stage 0-2 of `docs/query-optimizer.md` on one
       instance; god mode only after a reviewer has read the reports. On PostgreSQL confirm `pg_stat_statements` exists

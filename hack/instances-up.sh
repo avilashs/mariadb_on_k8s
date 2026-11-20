@@ -93,6 +93,9 @@ helmfile_sync --selector stage=grants
 wait_instances grant
 log "syncing the canaries for ENV=${ENV}"
 helmfile_sync --selector stage=canary
-log "syncing the query optimizers for ENV=${ENV}"
-helmfile_sync --selector stage=optimizer
+# The optimizer is opt-in: helmfile fails on a selector that matches nothing, so look first.
+if (cd "${ROOT}" && helmfile -f helmfile.d/10-instances.yaml.gotmpl list --skip-deps --selector stage=optimizer --output json 2>/dev/null | jq -e 'length > 0' >/dev/null 2>&1); then
+  log "syncing the query optimizers for ENV=${ENV}"
+  helmfile_sync --selector stage=optimizer
+fi
 log "instances for ENV=${ENV} are in place"
