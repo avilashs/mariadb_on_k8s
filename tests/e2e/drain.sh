@@ -453,8 +453,34 @@ for inst in ${INSTANCES:-alpha beta}; do
   fi
 done
 
+# case j: PostgreSQL. CloudNativePG protects its primary with a PodDisruptionBudget, so a plain drain of the
+# primary's node is refused and waits; nothing in CloudNativePG moves the primary ahead of a drain. The
+# drain-guard does (postgres.go). Drains the node of the ledger primary: the drain must finish by itself,
+# the role must have moved, and the writes must stay within the planned-switchover limit.
+case_j_postgres_primary_node_drained() {
+  local inst=ledger primary node new deadline=$((SECONDS + 300))
+  kc -n "db-${inst}" get cluster "${inst}" >/dev/null 2>&1 || { echo "no PostgreSQL instance ${inst}: nothing to drain"; return 1; }
+  canary_reset "${inst}"
+  primary="$(kc -n "db-${inst}" get cluster "${inst}" -o jsonpath='{.status.currentPrimary}')"
+  node="$(node_of "${inst}" "${primary}")"
+  drain "${node}" 600 || { echo "the drain of ${node} (primary ${primary}) did not finish by itself"; cat "${WORK}/drain-${node}.log"; return 1; }
+  new="$(kc -n "db-${inst}" get cluster "${inst}" -o jsonpath='{.status.currentPrimary}')"
+  [[ "${new}" != "${primary}" ]] || { echo "the primary is still ${primary} after its node drained"; return 1; }
+  kc uncordon "${node}" >/dev/null
+  until [[ "$(kc -n "db-${inst}" get cluster "${inst}" -o jsonpath='{.status.readyInstances}')" == "$(kc -n "db-${inst}" get cluster "${inst}" -o jsonpath='{.spec.instances}')" ]]; do
+    ((SECONDS < deadline)) || { echo "${inst} did not return to all instances ready"; return 1; }
+    sleep 5
+  done
+  echo "  the primary moved from ${primary} to ${new}"
+  canary_within "${inst}" "${LIMIT_SWITCHOVER}"
+}
+
 if want g; then
   check "g: two primaries on one node both move when the node drains" case_g_two_primaries_on_one_node alpha
+fi
+
+if want j; then
+  check "j: a PostgreSQL primary's node drains by itself; the role moves before the pod goes; outage within the limit" case_j_postgres_primary_node_drained
 fi
 
 summary
