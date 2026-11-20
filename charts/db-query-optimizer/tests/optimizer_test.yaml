@@ -1,0 +1,193 @@
+suite: the query optimizer
+release:
+  name: alpha-query-optimizer
+  namespace: db-alpha
+templates:
+  - templates/optimizer.yaml
+values:
+  - ../ci/mariadb.yaml
+tests:
+  - it: renders a configuration, a claim for its state and a CronJob
+    asserts:
+      - hasDocuments:
+          count: 3
+
+  - it: is notify-only by default and never applies anything unless asked
+    documentSelector:
+      path: kind
+      value: CronJob
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: QO_GOD_MODE
+            value: "false"
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: QO_DRY_RUN
+            value: "false"
+
+  - it: god mode and dry run are values
+    set:
+      godMode: true
+      dryRun: true
+    documentSelector:
+      path: kind
+      value: CronJob
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: QO_GOD_MODE
+            value: "true"
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: QO_DRY_RUN
+            value: "true"
+
+  - it: reads the database password from a Secret and never writes one into the configuration
+    documentSelector:
+      path: kind
+      value: CronJob
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: QO_DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: alpha-qopt-credentials
+                key: password
+
+  - it: connects a MariaDB instance through its primary Service, verifying the server
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "url: mariadb://qopt_reader:\\$\\{QO_DB_PASSWORD\\}@alpha-primary\\.db-alpha\\.svc:3306/appdb"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "ssl_verify_identity: true"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "ssl_ca: /etc/ca/ca\\.crt"
+
+  - it: connects a PostgreSQL instance through the read-write Service its certificate covers, verifying the server
+    values:
+      - ../ci/postgres.yaml
+    release:
+      name: ledger-query-optimizer
+      namespace: db-ledger
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "url: postgresql://qopt_reader:\\$\\{QO_DB_PASSWORD\\}@ledger-rw\\.db-ledger\\.svc:5432/ledger"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "sslmode: verify-full"
+
+  - it: mounts the server CA of the engine
+    documentSelector:
+      path: kind
+      value: CronJob
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.volumes
+          content:
+            name: ca
+            secret:
+              secretName: alpha-ca-bundle
+
+  - it: sends no literal to a model by default
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "redact_literals: true"
+
+  - it: uses the offline mock provider unless real providers are configured
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "provider: mock"
+
+  - it: reads the model keys from an optional Secret when one is named
+    set:
+      llmSecret: alpha-qopt-llm
+    documentSelector:
+      path: kind
+      value: CronJob
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].envFrom
+          content:
+            secretRef:
+              name: alpha-qopt-llm
+              optional: true
+
+  - it: runs as an unprivileged user on the system pool, never on a database node
+    documentSelector:
+      path: kind
+      value: CronJob
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.nodeSelector
+          value:
+            pool: system
+      - notExists:
+          path: spec.jobTemplate.spec.template.spec.tolerations
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+
+  - it: carries the instance label that lets it through the instance's NetworkPolicy
+    documentSelector:
+      path: kind
+      value: CronJob
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.metadata.labels["app.kubernetes.io/instance"]
+          value: alpha
+
+  - it: never overlaps itself and is not retried blindly
+    documentSelector:
+      path: kind
+      value: CronJob
+    asserts:
+      - equal:
+          path: spec.concurrencyPolicy
+          value: Forbid
+      - equal:
+          path: spec.jobTemplate.spec.backoffLimit
+          value: 0
+
+  - it: applies at most one statement per run by default
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "max_actions_per_run: 1"
+
+  - it: refuses an unknown engine
+    set:
+      engine: oracle
+    asserts:
+      - failedTemplate:
+          errorPattern: "engine must be mariadb or postgres"

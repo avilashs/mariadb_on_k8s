@@ -1,0 +1,6 @@
+apiVersion: v2
+name: db-query-optimizer
+description: The multi-LLM query optimizer for one database instance (https://github.com/avilashs/query_optimizer). Notify-only by default; the same chart for both engines.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

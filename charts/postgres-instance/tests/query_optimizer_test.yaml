@@ -1,0 +1,63 @@
+suite: the query optimizer's prerequisites on PostgreSQL
+templates:
+  - templates/cluster.yaml
+  - templates/databases.yaml
+values:
+  - ../ci/backup.yaml
+tests:
+  - it: loads nothing and adds no role by default
+    template: templates/cluster.yaml
+    asserts:
+      - notExists:
+          path: spec.postgresql.shared_preload_libraries
+      - notContains:
+          path: spec.managed.roles
+          content:
+            name: qopt_reader
+          any: true
+
+  - it: loads pg_stat_statements when the optimizer is enabled
+    template: templates/cluster.yaml
+    set:
+      queryOptimizer.enabled: true
+    asserts:
+      - equal:
+          path: spec.postgresql.shared_preload_libraries
+          value: [pg_stat_statements]
+
+  - it: adds a read-only role that can read statistics and data and cannot change anything
+    template: templates/cluster.yaml
+    set:
+      queryOptimizer.enabled: true
+    asserts:
+      - contains:
+          path: spec.managed.roles
+          content:
+            name: qopt_reader
+            ensure: present
+            login: true
+            connectionLimit: 5
+            inRoles:
+              - pg_read_all_stats
+              - pg_read_all_data
+            passwordSecret:
+              name: ledger-qopt-credentials
+          any: true
+
+  - it: creates the extension in each database when the optimizer is enabled
+    template: templates/databases.yaml
+    set:
+      queryOptimizer.enabled: true
+    asserts:
+      - contains:
+          path: spec.extensions
+          content:
+            name: pg_stat_statements
+            ensure: present
+          any: true
+
+  - it: creates no extension by default
+    template: templates/databases.yaml
+    asserts:
+      - notExists:
+          path: spec.extensions

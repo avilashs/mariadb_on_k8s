@@ -61,6 +61,11 @@ spec:
   # The time CloudNativePG gives a pod to stop (its name for the grace period).
   stopDelay: {{ .Values.scheduling.terminationGracePeriodSeconds }}
   postgresql:
+    {{- if (.Values.queryOptimizer | default dict).enabled }}
+    # The statement statistics the query optimizer reads. A restart (a rolling one) loads the library.
+    shared_preload_libraries:
+      - pg_stat_statements
+    {{- end }}
     {{- if .Values.durability.sync }}
     synchronous:
       method: any
@@ -125,6 +130,18 @@ spec:
         login: true
         passwordSecret:
           name: {{ $name }}-{{ .owner | replace "_" "-" }}-credentials
+      {{- end }}
+      {{- if (.Values.queryOptimizer | default dict).enabled }}
+      # The query optimizer's reader: it can read statistics, plans and data, and cannot change anything.
+      - name: qopt_reader
+        ensure: present
+        login: true
+        connectionLimit: 5
+        inRoles:
+          - pg_read_all_stats
+          - pg_read_all_data
+        passwordSecret:
+          name: {{ $name }}-qopt-credentials
       {{- end }}
   bootstrap:
     initdb:

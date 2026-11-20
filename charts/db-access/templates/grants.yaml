@@ -22,4 +22,29 @@ spec:
   host: "%"
   grantOption: false
 {{- end }}
+{{- range .Values.readers }}
+{{- $reader := . }}
+{{- range (concat (list "performance_schema") .databases | uniq) }}
+---
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: Grant
+metadata:
+  name: {{ $name }}-{{ include "dbaas.ident" $reader.name }}-{{ include "dbaas.ident" . }}
+  namespace: db-{{ $name }}
+  labels:
+    app.kubernetes.io/part-of: dbaas
+    dbaas.local/read-only: "true"
+spec:
+  mariaDbRef:
+    name: {{ $name }}
+  # SELECT only: the account can read statistics and plans but cannot change anything.
+  privileges:
+    - SELECT
+  database: {{ . | quote }}
+  table: "*"
+  username: {{ $reader.name | quote }}
+  host: "%"
+  grantOption: false
+{{- end }}
+{{- end }}
 {{- end }}

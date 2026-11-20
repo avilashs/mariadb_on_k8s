@@ -41,4 +41,23 @@ spec:
     key: password
   maxUserConnections: 100
 {{- end }}
+{{- range .Values.readers }}
+---
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: User
+metadata:
+  name: {{ $name }}-{{ include "dbaas.ident" .name }}
+  namespace: db-{{ $name }}
+  labels:
+    app.kubernetes.io/part-of: dbaas
+    dbaas.local/read-only: "true"
+spec:
+  mariaDbRef:
+    name: {{ $name }}
+  name: {{ .name }}
+  passwordSecretKeyRef:
+    name: {{ required "a reader needs a secret" .secret }}
+    key: password
+  maxUserConnections: 5
+{{- end }}
 {{- end }}

@@ -1,0 +1,4 @@
+name: alpha
+engine: mariadb
+database: appdb
+image: dbaas/query-optimizer:ci

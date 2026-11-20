@@ -103,3 +103,8 @@ maxScale:
   enabled: false
 
 deletionProtection: true
+
+# The query optimizer add-on (charts/db-query-optimizer). Only "enabled" is read here: it turns on the statement
+# history the optimizer needs to EXPLAIN real statements. The rest of the block is read by the helmfile.
+queryOptimizer:
+  enabled: false

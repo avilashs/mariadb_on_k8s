@@ -35,3 +35,9 @@ presets:
   medium: {cpu: "1", memory: 2Gi, storage: 20Gi, maxConnections: 300, sharedBuffers: 512MB}
   large: {cpu: "2", memory: 8Gi, storage: 100Gi, maxConnections: 600, sharedBuffers: 2GB}
 deletionProtection: true
+
+# The query optimizer add-on (charts/db-query-optimizer). Only "enabled" is read here: it loads pg_stat_statements,
+# creates the extension in each database and adds the read-only role qopt_reader. The rest of the block is read
+# by the helmfile.
+queryOptimizer:
+  enabled: false

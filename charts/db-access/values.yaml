@@ -4,3 +4,9 @@ stage: users
 databases: []
 #  - name: orders
 #    owner: orders_app
+# Read-only accounts (the query optimizer's reader). Each one: name, secret (holds "password") and the
+# databases it may SELECT from. It also gets SELECT on performance_schema, where the statement statistics are.
+readers: []
+#  - name: qopt_reader
+#    secret: alpha-qopt-credentials
+#    databases: [orders]

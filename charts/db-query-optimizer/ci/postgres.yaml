@@ -1,0 +1,4 @@
+name: ledger
+engine: postgres
+database: ledger
+image: dbaas/query-optimizer:ci

@@ -115,6 +115,7 @@
         "binlogFlushNodeSelector": {"type": "object", "additionalProperties": {"type": "string"}}
       }
     },
+    "queryOptimizer": {"type": "object"},
     "monitoring": {
       "type": "object",
       "additionalProperties": false,

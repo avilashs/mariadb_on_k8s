@@ -15,4 +15,9 @@ spec:
   name: {{ .name }}
   owner: {{ .owner }}
   ensure: present
+  {{- if ($.Values.queryOptimizer | default dict).enabled }}
+  extensions:
+    - name: pg_stat_statements
+      ensure: present
+  {{- end }}
 {{- end }}

@@ -1,0 +1,89 @@
+suite: read-only reader accounts
+templates:
+  - templates/users.yaml
+  - templates/grants.yaml
+values:
+  - ../ci/grants.yaml
+tests:
+  - it: creates the reader user with its password from a Secret, in the users stage
+    template: templates/users.yaml
+    set:
+      stage: users
+      readers:
+        - name: qopt_reader
+          secret: orders-qopt-credentials
+          databases: [orders]
+    documentSelector:
+      path: metadata.name
+      value: orders-qopt-reader
+    asserts:
+      - isKind:
+          of: User
+      - equal:
+          path: spec.passwordSecretKeyRef
+          value:
+            name: orders-qopt-credentials
+            key: password
+      - equal:
+          path: spec.maxUserConnections
+          value: 5
+
+  - it: grants SELECT and nothing else on the application database
+    template: templates/grants.yaml
+    set:
+      readers:
+        - name: qopt_reader
+          secret: orders-qopt-credentials
+          databases: [orders]
+    documentSelector:
+      path: metadata.name
+      value: orders-qopt-reader-orders
+    asserts:
+      - equal:
+          path: spec.privileges
+          value: [SELECT]
+      - equal:
+          path: spec.grantOption
+          value: false
+      - equal:
+          path: spec.username
+          value: qopt_reader
+
+  - it: grants SELECT and nothing else on performance_schema, where the statement statistics are
+    template: templates/grants.yaml
+    set:
+      readers:
+        - name: qopt_reader
+          secret: orders-qopt-credentials
+          databases: [orders]
+    documentSelector:
+      path: metadata.name
+      value: orders-qopt-reader-performance-schema
+    asserts:
+      - equal:
+          path: spec.privileges
+          value: [SELECT]
+      - equal:
+          path: spec.database
+          value: performance_schema
+      - equal:
+          path: spec.grantOption
+          value: false
+
+  - it: renders one grant for performance_schema and one per database
+    template: templates/grants.yaml
+    set:
+      databases: []
+      readers:
+        - name: qopt_reader
+          secret: orders-qopt-credentials
+          databases: [orders, billing]
+    asserts:
+      - hasDocuments:
+          count: 3
+
+  - it: renders no reader unless one is listed
+    template: templates/grants.yaml
+    asserts:
+      - hasDocuments:
+          count: 1

@@ -1,0 +1,155 @@
+{{- /*
+The multi-LLM query optimizer for one instance (https://github.com/avilashs/query_optimizer): a ConfigMap with its
+configuration, a PersistentVolumeClaim for its state (the audit log and the de-duplication) and reports, and a
+CronJob that runs it. Notify-only by default. No secret value is in this chart: the database password and the
+model keys are read from Secrets that exist beforehand.
+*/ -}}
+{{- $name := required "name is required" .Values.name -}}
+{{- $database := required "database is required" .Values.database -}}
+{{- $engine := .Values.engine -}}
+{{- if not (has $engine (list "mariadb" "postgres")) -}}
+{{- fail (printf "engine must be mariadb or postgres, got %q" $engine) -}}
+{{- end -}}
+{{- $ns := .Release.Namespace -}}
+{{- $isMaria := eq $engine "mariadb" -}}
+{{- $host := default (printf "%s.%s.svc" (ternary (printf "%s-primary" $name) (printf "%s-rw" $name) $isMaria) $ns) .Values.host -}}
+{{- $port := int (default (ternary 3306 5432 $isMaria) (.Values.port | int | default nil)) -}}
+{{- $passwordSecret := default (printf "%s-qopt-credentials" $name) .Values.passwordSecret -}}
+{{- $caSecret := default (ternary (printf "%s-ca-bundle" $name) (printf "%s-ca" $name) $isMaria) .Values.caSecret -}}
+{{- $scheme := ternary "mariadb" "postgresql" $isMaria -}}
+{{- /* The server is always verified: MariaDB through PyMySQL's ssl options, PostgreSQL through sslmode. */ -}}
+{{- $dbOptions := ternary
+      (dict "ssl_ca" "/etc/ca/ca.crt" "ssl_verify_identity" true)
+      (dict "sslmode" "verify-full" "sslrootcert" "/etc/ca/ca.crt")
+      $isMaria -}}
+{{- $labels := dict
+    "app.kubernetes.io/name" "db-query-optimizer"
+    "app.kubernetes.io/instance" $name
+    "app.kubernetes.io/part-of" "dbaas"
+    "dbaas.local/engine" $engine -}}
+{{- $apply := merge (dict "god_mode" "${QO_GOD_MODE:-false}" "dry_run" "${QO_DRY_RUN:-false}") (deepCopy .Values.apply) -}}
+{{- $cfg := dict
+    "database" (dict
+      "url" (printf "%s://%s:${QO_DB_PASSWORD}@%s:%d/%s" $scheme .Values.user $host $port $database)
+      "options" $dbOptions
+      "schemas" (default (list $database) .Values.schemas)
+      "statement_timeout_s" 60)
+    "collection" .Values.collection
+    "llms" .Values.llms
+    "ranker" .Values.ranker
+    "apply" $apply
+    "privacy" .Values.privacy
+    "notifiers" (concat (list (dict "type" "console") (dict "type" "file" "options" (dict "directory" "/data/reports"))) .Values.notifiers)
+    "state" (dict "path" "/data/state.db" "skip_recent_hours" .Values.skipRecentHours)
+    "max_workers" 4 -}}
+{{- $cfg = mergeOverwrite $cfg (deepCopy .Values.config) -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-query-optimizer
+  namespace: {{ $ns }}
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+data:
+  config.yaml: |
+    {{- toYaml $cfg | nindent 4 }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}-query-optimizer-data
+  namespace: {{ $ns }}
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.storage.className }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.storage.size }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $name }}-query-optimizer
+  namespace: {{ $ns }}
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+spec:
+  schedule: {{ .Values.schedule | quote }}
+  concurrencyPolicy: Forbid           # never two runs at once
+  startingDeadlineSeconds: 600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 0                 # a failed run is reported, not retried blindly
+      activeDeadlineSeconds: 3600
+      template:
+        metadata:
+          # The instance label lets the pod through the instance's NetworkPolicy (charts/mariadb-instance).
+          labels:
+            {{- toYaml $labels | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          nodeSelector:
+            {{- toYaml .Values.nodeSelector | nindent 12 }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: query-optimizer
+              image: {{ .Values.image | quote }}
+              imagePullPolicy: {{ .Values.imagePullPolicy }}
+              args: ["run", "-c", "/config/config.yaml"]
+              {{- with .Values.llmSecret }}
+              envFrom:
+                - secretRef:
+                    name: {{ . }}
+                    optional: true
+              {{- end }}
+              env:
+                - name: QO_DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $passwordSecret }}
+                      key: password
+                - name: QO_GOD_MODE
+                  value: {{ .Values.godMode | quote }}
+                - name: QO_DRY_RUN
+                  value: {{ .Values.dryRun | quote }}
+              resources:
+                {{- toYaml .Values.resources | nindent 16 }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - {name: config, mountPath: /config, readOnly: true}
+                - {name: ca, mountPath: /etc/ca, readOnly: true}
+                - {name: data, mountPath: /data}
+                - {name: tmp, mountPath: /tmp}
+          volumes:
+            - name: config
+              configMap:
+                name: {{ $name }}-query-optimizer
+            - name: ca
+              secret:
+                secretName: {{ $caSecret }}
+            - name: data
+              persistentVolumeClaim:
+                claimName: {{ $name }}-query-optimizer-data
+            - name: tmp
+              emptyDir: {}

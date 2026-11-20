@@ -78,6 +78,12 @@ instead of failing in the cluster.
     "skip_name_resolve" "ON"
     "character_set_server" "utf8mb4"
 -}}
+{{- /* The query optimizer EXPLAINs real statements, which MariaDB keeps only in these history tables (their
+       consumers are off by default; the digest table holds just the statement with ? in place of values). */ -}}
+{{- if (.Values.queryOptimizer | default dict).enabled -}}
+{{- $_ := set $baseline "performance_schema_consumer_events_statements_history" "ON" -}}
+{{- $_ := set $baseline "performance_schema_consumer_events_statements_history_long" "ON" -}}
+{{- end -}}
 {{- $merged := mergeOverwrite $baseline (.Values.parameters | default dict) -}}
 [mariadb]
 {{- range $key := keys $merged | sortAlpha }}

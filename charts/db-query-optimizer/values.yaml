@@ -1,0 +1,68 @@
+# Required: name (the instance), engine (mariadb or postgres) and database (the schema the optimizer analyses).
+name: ""
+engine: mariadb
+database: ""
+
+image: dbaas/query-optimizer:dev      # built by hack/build-query-optimizer.sh and loaded into kind
+imagePullPolicy: IfNotPresent
+imagePullSecrets: []
+
+schedule: "17 * * * *"                # hourly, off the top of the hour (UTC)
+
+# Where it connects. Empty means the instance's own Service: <name>-primary (MariaDB) or <name>-rw
+# (CloudNativePG; the name its server certificate covers). The primary, because statement statistics
+# exist only on the server that ran the statements and the writes run there.
+host: ""
+port: 0                               # 0 = 3306 (mariadb) or 5432 (postgres)
+user: qopt_reader                     # a read-only account (see charts/mariadb-instance and postgres-instance)
+passwordSecret: ""                    # default <name>-qopt-credentials; the key is "password"
+# Secret holding the server CA (ca.crt): <name>-ca-bundle (MariaDB) or <name>-ca (CloudNativePG).
+caSecret: ""
+
+# God mode applies the winning DDL automatically. It is OFF by default and the account above cannot change
+# anything, so a notify-only deployment physically cannot. Turn it on in stages (docs/query-optimizer.md).
+godMode: false
+dryRun: false
+
+collection:
+  metrics: [cpu, time, memory]
+  top_n: 5
+  min_calls: 2
+  exclude_patterns: []
+schemas: []                           # empty = the application schema only (the database above)
+
+# Every enabled model gives an independent recommendation. The default is the offline mock provider, which
+# returns "no change": it proves the wiring and costs nothing. A real deployment lists real providers here
+# and puts their keys in the Secret below (see docs/query-optimizer.md).
+llms:
+  - name: mock
+    provider: mock
+ranker:
+  strategy: heuristic                 # llm = a judge model ranks the candidates; needs a provider with a key
+privacy:
+  redact_literals: true               # string literals become '?' before any statement reaches a model
+apply:
+  allowed_actions: [create_index, analyze, create_statistics]
+  min_score: 7.0
+  max_risk: medium
+  max_actions_per_run: 1
+notifiers: []                         # extra ones, on top of the console and the file report
+skipRecentHours: 24
+
+# Optional Secret with the model providers' keys (ANTHROPIC_API_KEY, AZURE_AI_ENDPOINT, AZURE_AI_API_KEY, ...),
+# read as environment variables by the configuration. Created by the operator of the platform, never committed.
+llmSecret: ""
+
+# Free-form overrides merged over the generated configuration (see the optimizer's README).
+config: {}
+
+storage:
+  size: 1Gi
+  className: ""                       # empty = the cluster's default class
+
+resources:
+  requests: {cpu: 100m, memory: 256Mi}
+  limits: {memory: 512Mi}
+# The optimizer is not a database: it runs on the system pool and never on a database node.
+nodeSelector:
+  pool: system

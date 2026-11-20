@@ -1,0 +1,22 @@
+suite: the query optimizer's prerequisites on MariaDB
+templates:
+  - templates/mariadb.yaml
+values:
+  - ../ci/premium.yaml
+tests:
+  - it: leaves the statement history consumers off by default
+    asserts:
+      - notMatchRegex:
+          path: spec.myCnf
+          pattern: "performance_schema_consumer_events_statements_history"
+
+  - it: turns the statement history on when the optimizer is enabled, so real statements can be EXPLAINed
+    set:
+      queryOptimizer.enabled: true
+    asserts:
+      - matchRegex:
+          path: spec.myCnf
+          pattern: "performance_schema_consumer_events_statements_history=ON"
+      - matchRegex:
+          path: spec.myCnf
+          pattern: "performance_schema_consumer_events_statements_history_long=ON"
