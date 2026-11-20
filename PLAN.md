@@ -631,6 +631,8 @@ With one pool per zone and surge 1, AKS adds the new node in the right zone firs
 
 ### Phase 12 — Rollout to real clusters (human-gated)
 
+> **Scope decision (2026-11-20):** the local-NVMe tier is deferred to the next release. Release 1 offers `premium-ssd-v2` only; the NVMe staging proofs below apply when the tier is offered. See `docs/rollout-checklist.md` section 2b.
+
 The agent prepares; humans execute and sign off. The agent writes `docs/rollout-checklist.md` containing exactly these gates.
 
 1. **Staging environment values** filled in by a human: the node class catalogue with real VM sizes, node pools created per section 9.1, object store, receivers, registry.

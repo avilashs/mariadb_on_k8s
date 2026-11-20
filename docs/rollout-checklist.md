@@ -15,12 +15,6 @@ passed only when its evidence is attached to the change record. Nothing here is 
 ## 2. Staging proofs that kind cannot give
 
 - [ ] **Premium SSD v2:** a drained pod re-attaches its volume on another node in the same zone. Record the time.
-- [ ] **Local NVMe:** a drained pod starts on an empty volume on another node and re-seeds by itself. Record
-      minutes per 100 GB. This sets the drain timeout of that class.
-- [ ] **Local NVMe:** find out whether an AKS node image upgrade keeps or wipes the NVMe data of a reimaged
-      node. The design assumes it is wiped.
-- [ ] **Local NVMe (PostgreSQL):** the claim annotation through `inheritedMetadata` reaches the volume claims,
-      and CloudNativePG recovers an instance on an empty volume by itself.
 - [ ] AKS's pre-upgrade budget validation accepts the budgets the operators create. CloudNativePG's primary
       budget allows zero disruptions by design, which must not block the upgrade.
 - [ ] A real node image upgrade of one pool of each tier, with `scripts/preflight.sh` and
@@ -42,6 +36,21 @@ passed only when its evidence is attached to the change record. Nothing here is 
       in the database after the first rolling restart (kind showed the Database object claiming it did while it did not).
 - [ ] Run the e2e drain case for the drain-guard with two replicas during the AKS system-pool upgrade (a single
       replica fails the upgrade: the webhook is fail-closed).
+
+## 2b. Deferred to the next release: local NVMe tier
+
+Decision: the local-NVMe tier is **not part of the first release**. The first release offers `premium-ssd-v2` only.
+Consequences for the staging and production values: define no `local-nvme` node class, storage class or node pool, and
+accept no instance with `nodeClass` on that tier. The chart, the kind stand-in (`kind-nvme`) and the tests stay in the
+repository and keep running on kind; nothing was removed. The proofs below move with the tier and must pass before it
+is offered (PLAN.md risk 5 and 5b stay open):
+
+- [ ] **Local NVMe:** a drained pod starts on an empty volume on another node and re-seeds by itself. Record
+      minutes per 100 GB. This sets the drain timeout of that class.
+- [ ] **Local NVMe:** find out whether an AKS node image upgrade keeps or wipes the NVMe data of a reimaged
+      node. The design assumes it is wiped.
+- [ ] **Local NVMe (PostgreSQL):** the claim annotation through `inheritedMetadata` reaches the volume claims,
+      and CloudNativePG recovers an instance on an empty volume by itself.
 
 ## 3. Production
 
