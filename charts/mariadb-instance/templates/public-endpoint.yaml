@@ -1,0 +1,46 @@
+{{- /*
+Opt-in public endpoint for testing: a LoadBalancer Service to the current primary, restricted to the
+source ranges. Refuses to render without ranges or with a range that opens the world.
+*/ -}}
+{{- $pe := .Values.access.publicEndpoint | default dict -}}
+{{- if $pe.enabled -}}
+{{- $name := include "dbaas.instanceName" . -}}
+{{- if not $pe.sourceRanges -}}
+{{- fail "access.publicEndpoint.sourceRanges must list at least one range" -}}
+{{- end -}}
+{{- range $pe.sourceRanges -}}
+{{- if or (eq . "0.0.0.0/0") (hasSuffix "/0" .) -}}
+{{- fail (printf "access.publicEndpoint.sourceRanges: %s opens the endpoint to everyone" .) -}}
+{{- end -}}
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-public
+  namespace: db-{{ $name }}
+  labels:
+    app.kubernetes.io/part-of: dbaas
+    app.kubernetes.io/instance: {{ $name | quote }}
+  {{- if $pe.azurePublicIpName }}
+  annotations:
+    service.beta.kubernetes.io/azure-pip-name: {{ $pe.azurePublicIpName | quote }}
+    {{- if $pe.azurePublicIpResourceGroup }}
+    service.beta.kubernetes.io/azure-load-balancer-resource-group: {{ $pe.azurePublicIpResourceGroup | quote }}
+    {{- end }}
+  {{- end }}
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  loadBalancerSourceRanges:
+    {{- range $pe.sourceRanges }}
+    - {{ . | quote }}
+    {{- end }}
+  selector:
+    app.kubernetes.io/name: mariadb
+    app.kubernetes.io/instance: {{ $name | quote }}
+    k8s.mariadb.com/role: primary
+  ports:
+    - name: mariadb
+      port: 3306
+      targetPort: 3306
+{{- end }}

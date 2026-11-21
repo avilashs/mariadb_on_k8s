@@ -87,6 +87,16 @@
       "additionalProperties": false,
       "properties": {
         "tlsRequired": {"type": "boolean"},
+        "publicEndpoint": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "sourceRanges": {"type": "array", "items": {"type": "string", "pattern": "^[0-9.]+/([0-9]|[12][0-9]|3[0-2])$"}},
+            "azurePublicIpName": {"type": "string"},
+            "azurePublicIpResourceGroup": {"type": "string"}
+          }
+        },
         "allowedNamespaces": {"type": "array", "items": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"}},
         "databases": {
           "type": "array",

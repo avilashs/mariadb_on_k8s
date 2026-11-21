@@ -48,3 +48,15 @@ spec:
           protocol: TCP
         - port: 9104
           protocol: TCP
+{{- $pe := .Values.access.publicEndpoint | default dict }}
+{{- if $pe.enabled }}
+    # The public endpoint: only the listed source ranges, only the SQL port.
+    - from:
+        {{- range $pe.sourceRanges }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      ports:
+        - port: 3306
+          protocol: TCP
+{{- end }}

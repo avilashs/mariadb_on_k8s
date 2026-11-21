@@ -1,0 +1,59 @@
+suite: public endpoint
+templates:
+  - templates/public-endpoint.yaml
+  - templates/networkpolicy.yaml
+values:
+  - ../ci/premium.yaml
+tests:
+  - it: renders nothing by default
+    template: templates/public-endpoint.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+  - it: renders a source-restricted LoadBalancer to the primary
+    template: templates/public-endpoint.yaml
+    set:
+      access.publicEndpoint:
+        enabled: true
+        sourceRanges: ["203.0.113.7/32"]
+        azurePublicIpName: dbaas-test-ip
+        azurePublicIpResourceGroup: MC_rg
+    asserts:
+      - equal:
+          path: spec.type
+          value: LoadBalancer
+      - equal:
+          path: spec.loadBalancerSourceRanges
+          value: ["203.0.113.7/32"]
+      - equal:
+          path: spec.selector["k8s.mariadb.com/role"]
+          value: primary
+      - equal:
+          path: metadata.annotations["service.beta.kubernetes.io/azure-pip-name"]
+          value: dbaas-test-ip
+  - it: refuses an empty range list
+    template: templates/public-endpoint.yaml
+    set:
+      access.publicEndpoint.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "sourceRanges must list"
+  - it: refuses a range that opens the world
+    template: templates/public-endpoint.yaml
+    set:
+      access.publicEndpoint:
+        enabled: true
+        sourceRanges: ["0.0.0.0/0"]
+    asserts:
+      - failedTemplate:
+          errorPattern: "opens the endpoint to everyone"
+  - it: admits only the listed range in the isolation policy
+    template: templates/networkpolicy.yaml
+    set:
+      access.publicEndpoint:
+        enabled: true
+        sourceRanges: ["203.0.113.7/32"]
+    asserts:
+      - equal:
+          path: spec.ingress[1].from[0].ipBlock.cidr
+          value: "203.0.113.7/32"

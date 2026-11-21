@@ -66,6 +66,14 @@ access:
   # Namespaces outside the instance that may connect (PLAN.md phase 11). Empty by default.
   allowedNamespaces: []
   tlsRequired: true
+  # Opt-in public endpoint (a LoadBalancer Service to the primary). For testing only: it needs explicit
+  # sourceRanges (never 0.0.0.0/0), TLS stays required, and the isolation policy admits only those ranges.
+  # On AKS, azurePublicIpName names a Standard static public IP in azurePublicIpResourceGroup (the node group).
+  publicEndpoint:
+    enabled: false
+    sourceRanges: []
+    azurePublicIpName: ""
+    azurePublicIpResourceGroup: ""
   # Not rendered here. The db-access releases (users, then grants) create a Database,
   # a User and a Grant per entry. The field lives in the instance file so that one
   # file describes the whole instance.
