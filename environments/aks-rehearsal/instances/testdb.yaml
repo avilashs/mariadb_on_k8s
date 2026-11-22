@@ -1,0 +1,17 @@
+# A MariaDB test instance with a source-restricted public endpoint (opt-in, testing only).
+name: testdb
+engine: mariadb
+size: small
+replicas: 2
+nodeClass: aks-pv2
+access:
+  databases:
+    - name: appdb
+      owner: appuser
+  publicEndpoint:
+    enabled: true
+    sourceRanges: ["203.0.113.7/32"]   # replace with the tester's own address; never 0.0.0.0/0
+    azurePublicIpName: dbaas-test-ip
+    azurePublicIpResourceGroup: MC_dbaas-rehearsal_dbaas-aks_swedencentral
+backup:
+  enabled: true
