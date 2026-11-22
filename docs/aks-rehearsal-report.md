@@ -111,3 +111,38 @@ Reading it:
 - The cheapest real saving is lifecycle: this rehearsal costs 26 USD per day and should exist only while testing.
 - These are rehearsal numbers for the `small` to `medium` presets on D4s_v5; they are not a sizing for production.
   Staging (docs/rollout-checklist.md) must repeat the load test on the target VM size.
+
+## 7. Monthly cost against Azure Database for MySQL Flexible Server
+
+730 hours per month, Sweden Central, list prices from prices.azure.com, pay-as-you-go unless marked. Excluded on both
+sides: network egress, monitoring ingestion, backup storage beyond the free allowance, support plans and the
+engineering time to run it. The Flexible Server size is the nearest match to the tested primary:
+General Purpose Ddsv5, 4 vCore, 16 GiB, 50 GiB storage, 0.09 USD per vCore-hour, storage 0.137 USD/GiB/month
+(0.274 zone-redundant). It is MySQL, not MariaDB. Its performance was **not** measured here.
+
+| Option | Per month |
+|---|---|
+| This rehearsal as it runs now (4 nodes, data disks at 10,000 IOPS) | 799 |
+| Same, data disks at the default 3,000 IOPS | 677 |
+| Database tier only: 3 database nodes + 3 volumes (one instance) | 488 |
+| Production-style AKS: 3 database nodes, 2 system nodes (D2s_v5), AKS Standard SLA, load balancer, IPs, registry | 760 |
+| The same with 3-year VM reservations | 399 |
+| The same with 1-year VM reservations | 532 |
+| Flexible Server, single zone, no HA | 270 |
+| Flexible Server, zone-redundant HA (primary + standby) | 539 |
+| Flexible Server, HA + 1 read replica | 809 |
+| Flexible Server, HA + 2 read replicas | 1,079 |
+| Flexible Server HA, 3-year reservation | 213 |
+| Flexible Server HA + 2 read replicas, 3-year reservation | 427 |
+
+How the two compare:
+- One instance: Flexible Server with HA (539) is cheaper than production-style AKS (760), and it includes patching,
+  backups, point in time recovery and the HA SLA. Our topology (one primary, two readable replicas) matches
+  "HA + 2 read replicas" (1,079), where AKS is cheaper.
+- Each further 4-vCore instance needs three more database nodes on AKS (about 488 pay-as-you-go, about 218 with
+  3-year reservations) against about 539 (213 reserved) per Flexible Server. At that size the two are within a few
+  percent of each other: the platform's cost advantage appears only when instances are smaller than a node (several
+  small instances sharing nodes) or when the fixed AKS overhead is spread over many instances.
+- Flexible Server charges for IOPS above the free allowance (0.06 USD per IOPS per month: 3,000 IOPS on 50 GiB is
+  about 158 USD); Premium SSD v2 includes 3,000 IOPS and 125 MB/s.
+- MariaDB: Flexible Server does not offer it. Moving to it means MySQL compatibility work.
