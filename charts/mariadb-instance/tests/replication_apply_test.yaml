@@ -1,0 +1,19 @@
+suite: replica apply parallelism
+templates:
+  - templates/mariadb.yaml
+values:
+  - ../ci/premium.yaml
+tests:
+  - it: applies the primary's writes with 16 parallel threads by default
+    asserts:
+      - matchRegex:
+          path: spec.myCnf
+          pattern: "slave_parallel_threads=16"
+  - it: lets the instance parameters override it
+    set:
+      parameters:
+        slave_parallel_threads: "32"
+    asserts:
+      - matchRegex:
+          path: spec.myCnf
+          pattern: "slave_parallel_threads=32"

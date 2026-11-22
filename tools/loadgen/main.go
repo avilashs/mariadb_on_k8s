@@ -23,26 +23,33 @@ import (
 	"github.com/go-sql-driver/mysql"
 )
 
+type sample struct {
+	at  int32 // milliseconds since the start of the measured period
+	lat int32 // microseconds
+}
+
 type result struct {
 	lat  []time.Duration
-	errs int
+	smp  []sample
+	errs []int32 // error times, milliseconds since the start of the measured period
 }
 
 func main() {
 	var (
-		host     = flag.String("host", "127.0.0.1", "server host")
-		port     = flag.Int("port", 3306, "server port")
-		user     = flag.String("user", "", "user")
-		pwEnv    = flag.String("password-env", "PW", "environment variable holding the password")
-		db       = flag.String("db", "", "database")
-		useTLS   = flag.Bool("tls", true, "use TLS (the certificate is not verified: a benchmark inside the cluster)")
-		clients  = flag.Int("clients", 16, "concurrent clients")
-		duration = flag.Duration("duration", 60*time.Second, "measured duration")
-		warmup   = flag.Duration("warmup", 10*time.Second, "warm-up, not measured")
-		workload = flag.String("workload", "mixed", "read | write | mixed (80% read, 20% write)")
-		rows     = flag.Int("rows", 100000, "rows in the table")
-		rate     = flag.Float64("rate", 0, "total statements per second (open loop); 0 = closed loop")
-		prepare  = flag.Bool("prepare", false, "create and fill the table first")
+		host        = flag.String("host", "127.0.0.1", "server host")
+		port        = flag.Int("port", 3306, "server port")
+		user        = flag.String("user", "", "user")
+		pwEnv       = flag.String("password-env", "PW", "environment variable holding the password")
+		db          = flag.String("db", "", "database")
+		useTLS      = flag.Bool("tls", true, "use TLS (the certificate is not verified: a benchmark inside the cluster)")
+		clients     = flag.Int("clients", 16, "concurrent clients")
+		duration    = flag.Duration("duration", 60*time.Second, "measured duration")
+		warmup      = flag.Duration("warmup", 10*time.Second, "warm-up, not measured")
+		workload    = flag.String("workload", "mixed", "read | write | mixed (80% read, 20% write)")
+		rows        = flag.Int("rows", 100000, "rows in the table")
+		rate        = flag.Float64("rate", 0, "total statements per second (open loop); 0 = closed loop")
+		prepare     = flag.Bool("prepare", false, "create and fill the table first")
+		windowEvery = flag.Duration("interval", 0, "print one line per interval (a soak or stress run); 0 = only the total")
 	)
 	flag.Parse()
 	if *user == "" || *db == "" {
@@ -137,11 +144,15 @@ func main() {
 				if began.Before(measureFrom) {
 					continue
 				}
+				at := int32(time.Since(measureFrom) / time.Millisecond)
 				if err != nil {
-					results[w].errs++
+					results[w].errs = append(results[w].errs, at)
 					continue
 				}
 				results[w].lat = append(results[w].lat, took)
+				if *windowEvery > 0 {
+					results[w].smp = append(results[w].smp, sample{at: at, lat: int32(took / time.Microsecond)})
+				}
 			}
 		}(w)
 	}
@@ -151,7 +162,10 @@ func main() {
 	errs := 0
 	for _, r := range results {
 		all = append(all, r.lat...)
-		errs += r.errs
+		errs += len(r.errs)
+	}
+	if *windowEvery > 0 {
+		printWindows(results, *windowEvery, *duration)
 	}
 	if len(all) == 0 {
 		fatal(fmt.Errorf("no successful statements (%d errors)", errs))
@@ -173,6 +187,40 @@ func main() {
 		*workload, *clients, mode, *duration, len(all), errs,
 		float64(len(all))/duration.Seconds(), float64(sum)/float64(len(all))/float64(time.Millisecond),
 		pct(0.50), pct(0.95), pct(0.99), float64(all[len(all)-1])/float64(time.Millisecond))
+}
+
+// printWindows prints one line per interval: statements per second, p50, p95, p99, max and errors in that window.
+func printWindows(results []result, interval, total time.Duration) {
+	n := int((total + interval - 1) / interval)
+	lats := make([][]int32, n)
+	errs := make([]int, n)
+	idx := func(at int32) int {
+		i := int(time.Duration(at) * time.Millisecond / interval)
+		if i >= n {
+			i = n - 1
+		}
+		return i
+	}
+	for _, r := range results {
+		for _, sm := range r.smp {
+			i := idx(sm.at)
+			lats[i] = append(lats[i], sm.lat)
+		}
+		for _, at := range r.errs {
+			errs[idx(at)]++
+		}
+	}
+	fmt.Println("window  qps      p50ms   p95ms   p99ms   maxms   errors")
+	for i := 0; i < n; i++ {
+		l := lats[i]
+		if len(l) == 0 {
+			fmt.Printf("%-7d %-8d no successful statements, errors=%d\n", i+1, 0, errs[i])
+			continue
+		}
+		sort.Slice(l, func(a, b int) bool { return l[a] < l[b] })
+		p := func(q float64) float64 { return float64(l[int(float64(len(l)-1)*q)]) / 1000 }
+		fmt.Printf("%-7d %-8.0f %-7.2f %-7.2f %-7.2f %-7.2f %d\n", i+1, float64(len(l))/interval.Seconds(), p(0.5), p(0.95), p(0.99), float64(l[len(l)-1])/1000, errs[i])
+	}
 }
 
 func fatal(err error) {

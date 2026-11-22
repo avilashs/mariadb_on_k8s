@@ -25,7 +25,7 @@ passed only when its evidence is attached to the change record. Nothing here is 
 - [ ] A test alert reaches the real pager and the chat channel.
 - [ ] The switchover stall found in kind (docs/deviations.md, phase 7): a replica behind in GTID, not in seconds,
       delayed a planned switchover for minutes. Reproduce at production load and decide the operator setting
-      or the fix before production.
+      or the fix before production. Rehearsal 2 found the likely cause: 4 replica apply threads under a write load of about 3.5k writes/s let replicas fall hours behind; the chart default is now 16 (docs/deviations.md, 2026-11-22). Re-run the stall with it.
 - [ ] The MariaDB exporter path (docs/deviations.md, phase 8): `mysql_up` reports 1 for every instance, and the
       replication and connection alerts see data.
 
