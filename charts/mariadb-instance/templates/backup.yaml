@@ -42,6 +42,10 @@ spec:
   # Backups read from a replica when one is ready, so the primary does not pay for them.
   # The backup Job mounts that replica's volume, so it must run on the database nodes too.
   target: PreferReplica
+  # The jobs connect to the database pods, which the isolation policy admits only from pods of the instance.
+  podMetadata:
+    labels:
+      dbaas.local/instance: {{ $name | quote }}
   tolerations:
     - key: workload
       operator: Equal
@@ -72,6 +76,10 @@ spec:
     # their bootstrap Jobs take their scheduling from this spec, so it tolerates the database taint.
     suspend: true
   target: PreferReplica
+  # The jobs connect to the database pods, which the isolation policy admits only from pods of the instance.
+  podMetadata:
+    labels:
+      dbaas.local/instance: {{ $name | quote }}
   tolerations:
     - key: workload
       operator: Equal

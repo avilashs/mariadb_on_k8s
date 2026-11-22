@@ -26,6 +26,10 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/instance: {{ $name | quote }}
+        # Backup, restore and replay jobs of the instance (labelled through podMetadata of the PhysicalBackups).
+        - podSelector:
+            matchLabels:
+              dbaas.local/instance: {{ $name | quote }}
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: mariadb-system
