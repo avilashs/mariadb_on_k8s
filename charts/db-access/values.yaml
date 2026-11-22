@@ -10,3 +10,6 @@ readers: []
 #  - name: qopt_reader
 #    secret: alpha-qopt-credentials
 #    databases: [orders]
+
+# Connection cap of each application user (MAX_USER_CONNECTIONS). Raise it for load tests, with the instance maxConnections.
+maxUserConnections: 100

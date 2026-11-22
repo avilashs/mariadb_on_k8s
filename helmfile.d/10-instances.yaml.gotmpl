@@ -89,7 +89,7 @@ releases:
     needs:
       - db-{{ $name }}/{{ $name }}
     values:
-      - {{ dict "name" $name "stage" "users" "databases" $databases "readers" (ternary (list (dict "name" "qopt_reader" "secret" (printf "%s-qopt-credentials" $name) "databases" (list $qoDb))) (list) $qoOn) | toJson }}
+      - {{ dict "name" $name "stage" "users" "databases" $databases "maxUserConnections" (dig "access" "maxUserConnections" 100 $inst) "readers" (ternary (list (dict "name" "qopt_reader" "secret" (printf "%s-qopt-credentials" $name) "databases" (list $qoDb))) (list) $qoOn) | toJson }}
 
   - name: {{ $name }}-grants
     namespace: db-{{ $name }}

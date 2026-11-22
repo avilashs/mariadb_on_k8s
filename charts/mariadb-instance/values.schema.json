@@ -87,6 +87,7 @@
       "additionalProperties": false,
       "properties": {
         "tlsRequired": {"type": "boolean"},
+        "maxUserConnections": {"type": "integer", "minimum": 1},
         "publicEndpoint": {
           "type": "object",
           "additionalProperties": false,

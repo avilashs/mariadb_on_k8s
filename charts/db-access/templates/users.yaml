@@ -39,7 +39,7 @@ spec:
   passwordSecretKeyRef:
     name: {{ $name }}-{{ include "dbaas.ident" $owner }}-credentials
     key: password
-  maxUserConnections: 100
+  maxUserConnections: {{ $.Values.maxUserConnections | default 100 }}
 {{- end }}
 {{- range .Values.readers }}
 ---

@@ -29,3 +29,17 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: "database name \"Orders-DB\" must match ^[a-z][a-z0-9_]{0,30}$"
+  - it: caps the application user's connections at 100 unless told otherwise
+    asserts:
+      - equal:
+          path: spec.maxUserConnections
+          value: 100
+        documentIndex: 1
+  - it: takes the connection cap from maxUserConnections
+    set:
+      maxUserConnections: 1500
+    asserts:
+      - equal:
+          path: spec.maxUserConnections
+          value: 1500
+        documentIndex: 1

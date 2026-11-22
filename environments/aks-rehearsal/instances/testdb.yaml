@@ -1,10 +1,17 @@
 # A MariaDB test instance with a source-restricted public endpoint (opt-in, testing only).
+# Sized up for the connection-concurrency benchmark: 1000+ connections need memory and max_connections.
 name: testdb
 engine: mariadb
-size: small
+size: medium
 replicas: 2
 nodeClass: aks-pv2
+resources:
+  cpu: "3"
+  memory: 8Gi
+parameters:
+  max_connections: "1500"
 access:
+  maxUserConnections: 1500
   databases:
     - name: appdb
       owner: appuser
