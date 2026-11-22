@@ -48,7 +48,7 @@ The throughput difference between run 1 and the other two is a warmer buffer poo
 | Errors / lost writes | 0 / 0 | 0 / 0 | 0 / 0 |
 | Canary longest outage | 1.83 s | 1.06 s | 1.09 s |
 
-The 6 s to 14 ms spread is the cost of a commit: semi-sync acknowledgement from a replica in another zone plus the
+The 10 to 15 ms write latency is the cost of a commit: semi-sync acknowledgement from a replica in another zone plus the
 Premium SSD v2 fsync, both with `sync_binlog=1` and `innodb_flush_log_at_trx_commit=1`.
 
 ## 4. Concurrency curve (how many users)
