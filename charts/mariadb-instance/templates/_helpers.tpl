@@ -76,7 +76,7 @@ instead of failing in the cluster.
     "long_query_time" "1"
     "performance_schema" "ON"
     "skip_name_resolve" "ON"
-    "slave_parallel_threads" "16"
+    "slave_parallel_threads" "32"
     "character_set_server" "utf8mb4"
 -}}
 {{- /* The query optimizer EXPLAINs real statements, which MariaDB keeps only in these history tables (their

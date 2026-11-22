@@ -4,16 +4,16 @@ templates:
 values:
   - ../ci/premium.yaml
 tests:
-  - it: applies the primary's writes with 16 parallel threads by default
-    asserts:
-      - matchRegex:
-          path: spec.myCnf
-          pattern: "slave_parallel_threads=16"
-  - it: lets the instance parameters override it
-    set:
-      parameters:
-        slave_parallel_threads: "32"
+  - it: applies the primary's writes with 32 parallel threads by default
     asserts:
       - matchRegex:
           path: spec.myCnf
           pattern: "slave_parallel_threads=32"
+  - it: lets the instance parameters override it
+    set:
+      parameters:
+        slave_parallel_threads: "8"
+    asserts:
+      - matchRegex:
+          path: spec.myCnf
+          pattern: "slave_parallel_threads=8"
